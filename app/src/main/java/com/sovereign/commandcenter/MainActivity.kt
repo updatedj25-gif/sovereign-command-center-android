@@ -1,5 +1,7 @@
 package com.sovereign.commandcenter
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.setContent
@@ -21,12 +23,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.fragment.app.FragmentActivity
 import com.sovereign.commandcenter.auth.BiometricStepUpHelper
 import com.sovereign.commandcenter.data.api.ApiClient
+import com.sovereign.commandcenter.data.api.AppUpdateInfo
 import com.sovereign.commandcenter.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -34,27 +37,116 @@ import java.util.*
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         setContent {
             SovereignTheme {
                 val isAuthenticated = remember { mutableStateOf(false) }
+                val updateInfoState = remember { mutableStateOf<AppUpdateInfo?>(null) }
+
+                LaunchedEffect(Unit) {
+                    ApiClient.checkForUpdate(currentVersionCode = 2) { update ->
+                        if (update != null && update.hasUpdate) {
+                            runOnUiThread {
+                                updateInfoState.value = update
+                            }
+                        }
+                    }
+                }
+
+                if (updateInfoState.value != null) {
+                    val update = updateInfoState.value!!
+                    Dialog(onDismissRequest = { updateInfoState.value = null }) {
+                        Card(
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(containerColor = SovereignCreamDarker),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SovereignAmber),
+                            modifier = Modifier.fillMaxWidth().padding(16.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Box(
+                                    modifier = Modifier.size(50.dp).background(SovereignAmber, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = SovereignCream)
+                                }
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Text(
+                                    "Update Available",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SovereignStone950
+                                )
+                                Text(
+                                    "Version ${update.versionName} is ready to install.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = SovereignStone800
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    update.releaseNotes,
+                                    fontSize = 12.sp,
+                                    color = SovereignStone600
+                                )
+                                Spacer(modifier = Modifier.height(20.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { updateInfoState.value = null },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Text("Later", color = SovereignStone800)
+                                    }
+                                    Button(
+                                        onClick = {
+                                            updateInfoState.value = null
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(update.downloadUrl))
+                                            startActivity(intent)
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.buttonColors(containerColor = SovereignAmber),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Text("Download Now", color = SovereignCream, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 if (!isAuthenticated.value) {
                     PasskeyGateScreen(
-                        onAuthenticated = {
-                            isAuthenticated.value = true
-                            Toast.makeText(this, "Passkey Verified: Welcome CEO Adebola", Toast.LENGTH_SHORT).show()
+                        onTriggerPasskey = {
+                            BiometricStepUpHelper.promptBiometric(
+                                activity = this@MainActivity,
+                                title = "Sovereign CEO Passkey",
+                                subtitle = "Confirm fingerprint or screen lock to unlock",
+                                onSuccess = {
+                                    isAuthenticated.value = true
+                                    Toast.makeText(this@MainActivity, "Identity Verified: Welcome CEO Adebola", Toast.LENGTH_SHORT).show()
+                                },
+                                onError = { error ->
+                                    Toast.makeText(this@MainActivity, "Passkey prompt: $error", Toast.LENGTH_SHORT).show()
+                                }
+                            )
                         }
                     )
                 } else {
                     CommandCenterCockpit(
                         onTriggerStepUp = { actionName, onApproved ->
-                            BiometricStepUpHelper.promptBiometricApproval(
-                                activity = this,
+                            BiometricStepUpHelper.promptBiometric(
+                                activity = this@MainActivity,
                                 title = "Authorize Sensitive Action",
                                 subtitle = "Biometric confirmation required for: $actionName",
                                 onSuccess = onApproved,
                                 onError = { error ->
-                                    Toast.makeText(this, "Authorization cancelled: $error", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(this@MainActivity, "Action cancelled: $error", Toast.LENGTH_SHORT).show()
                                 }
                             )
                         }
@@ -66,10 +158,7 @@ class MainActivity : FragmentActivity() {
 }
 
 @Composable
-fun PasskeyGateScreen(onAuthenticated: () -> Unit) {
-    var isAuthenticating by remember { mutableStateOf(false) }
-    var statusMessage by remember { mutableStateOf<String?>(null) }
-
+fun PasskeyGateScreen(onTriggerPasskey: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = SovereignCream
@@ -143,55 +232,14 @@ fun PasskeyGateScreen(onAuthenticated: () -> Unit) {
                     Spacer(modifier = Modifier.height(24.dp))
 
                     Button(
-                        onClick = {
-                            isAuthenticating = true
-                            statusMessage = "Requesting challenge from Sovereign backend..."
-                            ApiClient.getPasskeyChallenge { success, challengeId, _ ->
-                                if (success && challengeId != null) {
-                                    statusMessage = "Verifying Passkey assertion..."
-                                    ApiClient.verifyPasskey(challengeId) { verifyOk, _ ->
-                                        isAuthenticating = false
-                                        if (verifyOk) {
-                                            onAuthenticated()
-                                        } else {
-                                            // Fallback to local verified passkey for direct device testing
-                                            onAuthenticated()
-                                        }
-                                    }
-                                } else {
-                                    isAuthenticating = false
-                                    // Direct offline passkey unlock fallback
-                                    onAuthenticated()
-                                }
-                            }
-                        },
+                        onClick = { onTriggerPasskey() },
                         colors = ButtonDefaults.buttonColors(containerColor = SovereignAmber),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                        enabled = !isAuthenticating
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
                     ) {
-                        if (isAuthenticating) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = SovereignCream,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(Icons.Default.Key, contentDescription = null, tint = SovereignCream)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Unlock with Passkey", color = SovereignCream, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    if (statusMessage != null) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            statusMessage ?: "",
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = SovereignStone600,
-                            textAlign = TextAlign.Center
-                        )
+                        Icon(Icons.Default.Fingerprint, contentDescription = null, tint = SovereignCream)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Unlock with Passkey / Fingerprint", color = SovereignCream, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -426,7 +474,7 @@ fun CommandCenterCockpit(
                             OutlinedButton(
                                 onClick = {
                                     onTriggerStepUp("Deploy ${activeRepo.value} to Production") {
-                                        // Step up approved
+                                        // Step-up approved
                                     }
                                 },
                                 shape = RoundedCornerShape(8.dp),
