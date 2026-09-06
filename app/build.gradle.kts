@@ -31,8 +31,19 @@ android {
         }
     }
 
+    
+    signingConfigs {
+        create("permanent") {
+            storeFile = file("sovereign-release.jks")
+            storePassword = "sovereign123"
+            keyAlias = "sovereign"
+            keyPassword = "sovereign123"
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("permanent")
             signingConfig = signingConfigs.getByName("permanent")
             isMinifyEnabled = false
             proguardFiles(
@@ -41,6 +52,7 @@ android {
             )
         }
         debug {
+            signingConfig = signingConfigs.getByName("permanent")
             signingConfig = signingConfigs.getByName("permanent")
             applicationIdSuffix = ".debug"
             isDebuggable = true
