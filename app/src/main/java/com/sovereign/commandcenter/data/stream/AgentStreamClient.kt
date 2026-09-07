@@ -2,9 +2,9 @@ package com.sovereign.commandcenter.data.stream
 
 import com.sovereign.commandcenter.data.api.ApiClient
 import com.sovereign.commandcenter.data.session.SessionManager
-import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.callbackFlow
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -46,117 +46,112 @@ class AgentStreamClient {
     @Volatile
     private var activeCall: okhttp3.Call? = null
 
-    @Volatile
-    private var currentContextVersion: Long = 0L
-
+    /**
+     * Cold flow tied to the caller coroutine scope (e.g. viewModelScope).
+     * Automatically closes network streams and cancels calls when cancelled.
+     */
     fun streamPrompt(
         context: StreamRequestContext,
         history: List<Pair<String, String>> = emptyList()
-    ): Flow<StreamEvent> {
-        val flow = MutableSharedFlow<StreamEvent>(replay = 1)
-        currentContextVersion = context.workspaceContextVersion
-
-        // Cancel previous request to protect against stale interleaved responses
+    ): Flow<StreamEvent> = callbackFlow {
+        // Cancel any existing active call before initiating a new one
         cancelCurrentStream()
 
-        CoroutineScope(Dispatchers.IO).launch {
-            val payload = JSONObject().apply {
-                put("prompt", context.prompt)
-                put("sessionId", context.sessionId)
-                if (context.repositoryId != null) {
-                    put("repo", context.repositoryId)
-                    put("owner", "Trinity-Universe")
-                }
-                val historyArray = JSONArray()
-                history.forEach { (role, content) ->
-                    historyArray.put(JSONObject().apply {
-                        put("role", role)
-                        put("content", content)
-                    })
-                }
-                put("history", historyArray)
+        val payload = JSONObject().apply {
+            put("prompt", context.prompt)
+            put("sessionId", context.sessionId)
+            if (context.repositoryId != null) {
+                put("repo", context.repositoryId)
             }
-
-            val requestBuilder = Request.Builder()
-                .url("${ApiClient.baseUrl}/api/agent/stream")
-                .header("Accept", "text/event-stream")
-                .header("Cache-Control", "no-cache")
-                .post(payload.toString().toRequestBody(JSON_TYPE))
-
-            val cookie = SessionManager.getAuthCookieHeader()
-            if (!cookie.isNullOrEmpty()) {
-                requestBuilder.header("Cookie", cookie)
+            put("branch", context.branch)
+            put("environment", context.environment)
+            val historyArray = JSONArray()
+            history.forEach { (role, content) ->
+                historyArray.put(JSONObject().apply {
+                    put("role", role)
+                    put("content", content)
+                })
             }
-
-            val call = client.newCall(requestBuilder.build())
-            activeCall = call
-
-            try {
-                val response: Response = call.execute()
-                if (!response.isSuccessful) {
-                    flow.emit(StreamEvent.Error("HTTP Error: ${response.code} ${response.message}"))
-                    flow.emit(StreamEvent.Completed)
-                    return@launch
-                }
-
-                val inputStream = response.body?.byteStream()
-                if (inputStream == null) {
-                    flow.emit(StreamEvent.Error("Response body is empty"))
-                    flow.emit(StreamEvent.Completed)
-                    return@launch
-                }
-
-                val reader = BufferedReader(InputStreamReader(inputStream))
-                var line: String?
-
-                while (reader.readLine().also { line = it } != null) {
-                    // Stale context suppression: discard events if context version changed
-                    if (context.workspaceContextVersion != currentContextVersion) {
-                        break
-                    }
-
-                    val currentLine = line?.trim() ?: continue
-                    if (currentLine.isEmpty() || currentLine.startsWith(":")) {
-                        // Heartbeat / comment line
-                        continue
-                    }
-
-                    if (currentLine.startsWith("data:")) {
-                        val jsonStr = currentLine.removePrefix("data:").trim()
-                        if (jsonStr.isNotEmpty()) {
-                            parseAndEmitEvent(jsonStr, flow)
-                        }
-                    }
-                }
-                flow.emit(StreamEvent.Completed)
-            } catch (e: Exception) {
-                if (!call.isCanceled()) {
-                    flow.emit(StreamEvent.Error(e.message ?: "Stream interrupted"))
-                    flow.emit(StreamEvent.Completed)
-                }
-            } finally {
-                activeCall = null
-            }
+            put("history", historyArray)
         }
 
-        return flow
+        val requestBuilder = Request.Builder()
+            .url("${ApiClient.baseUrl}/api/agent/stream")
+            .header("Accept", "text/event-stream")
+            .header("Cache-Control", "no-cache")
+            .post(payload.toString().toRequestBody(JSON_TYPE))
+
+        val cookie = SessionManager.getAuthCookieHeader()
+        if (!cookie.isNullOrEmpty()) {
+            requestBuilder.header("Cookie", cookie)
+        }
+
+        val call = client.newCall(requestBuilder.build())
+        activeCall = call
+
+        try {
+            val response: Response = call.execute()
+            if (!response.isSuccessful) {
+                trySend(StreamEvent.Error("HTTP Error: ${response.code} ${response.message}"))
+                trySend(StreamEvent.Completed)
+                close()
+                return@callbackFlow
+            }
+
+            val inputStream = response.body?.byteStream()
+            if (inputStream == null) {
+                trySend(StreamEvent.Error("Response body is empty"))
+                trySend(StreamEvent.Completed)
+                close()
+                return@callbackFlow
+            }
+
+            val reader = BufferedReader(InputStreamReader(inputStream))
+            var line: String?
+
+            while (reader.readLine().also { line = it } != null) {
+                val currentLine = line?.trim() ?: continue
+                if (currentLine.isEmpty() || currentLine.startsWith(":")) {
+                    continue
+                }
+
+                if (currentLine.startsWith("data:")) {
+                    val jsonStr = currentLine.removePrefix("data:").trim()
+                    if (jsonStr.isNotEmpty()) {
+                        parseAndEmitEvent(jsonStr) { event -> trySend(event) }
+                    }
+                }
+            }
+            trySend(StreamEvent.Completed)
+        } catch (e: Exception) {
+            if (!call.isCanceled()) {
+                trySend(StreamEvent.Error(e.message ?: "Stream interrupted"))
+                trySend(StreamEvent.Completed)
+            }
+        } finally {
+            close()
+        }
+
+        awaitClose {
+            cancelCurrentStream()
+        }
     }
 
-    private suspend fun parseAndEmitEvent(jsonStr: String, flow: MutableSharedFlow<StreamEvent>) {
+    private fun parseAndEmitEvent(jsonStr: String, emitter: (StreamEvent) -> Unit) {
         try {
             val json = JSONObject(jsonStr)
             when (json.optString("type")) {
                 "task_running" -> {
-                    flow.emit(
+                    emitter(
                         StreamEvent.TaskRunning(
                             tool = json.optString("tool", "executing"),
-                            stepId = json.optString("stepId", null),
+                            stepId = json.optString("stepId", ""),
                             turn = json.optInt("turn")
                         )
                     )
                 }
                 "approval_required" -> {
-                    flow.emit(
+                    emitter(
                         StreamEvent.ApprovalRequired(
                             approvalId = json.getString("approvalId"),
                             tool = json.optString("tool", "system"),
@@ -166,7 +161,7 @@ class AgentStreamClient {
                     )
                 }
                 "approval_granted" -> {
-                    flow.emit(
+                    emitter(
                         StreamEvent.ApprovalGranted(
                             approvalId = json.getString("approvalId"),
                             tool = json.optString("tool", "")
@@ -174,34 +169,35 @@ class AgentStreamClient {
                     )
                 }
                 "task_failed" -> {
-                    flow.emit(
+                    emitter(
                         StreamEvent.TaskFailed(
-                            task = json.optString("task", null),
+                            task = json.optString("task", ""),
                             summary = json.optString("summary", "Execution failed")
                         )
                     )
                 }
                 "session_conflict" -> {
-                    flow.emit(
+                    emitter(
                         StreamEvent.SessionConflict(
-                            code = json.optString("code", null),
+                            code = json.optString("code", ""),
                             message = json.optString("message", "Session conflict")
                         )
                     )
                 }
                 "error" -> {
-                    flow.emit(StreamEvent.Error(json.optString("error", "Unknown agent error")))
+                    emitter(StreamEvent.Error(json.optString("error", "Unknown agent error")))
                 }
                 else -> {
-                    val content = json.optString("content") ?: json.optString("message") ?: ""
+                    val content = json.optString("content").takeIf { it.isNotEmpty() }
+                        ?: json.optString("message").takeIf { it.isNotEmpty() }
+                        ?: ""
                     if (content.isNotEmpty()) {
-                        flow.emit(StreamEvent.ContentChunk(content))
+                        emitter(StreamEvent.ContentChunk(content))
                     }
                 }
             }
         } catch (_: Exception) {
-            // Passthrough unformatted chunk as raw text
-            flow.emit(StreamEvent.ContentChunk(jsonStr))
+            emitter(StreamEvent.ContentChunk(jsonStr))
         }
     }
 
