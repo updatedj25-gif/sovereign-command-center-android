@@ -21,17 +21,6 @@ android {
         }
     }
 
-    
-    signingConfigs {
-        create("permanent") {
-            storeFile = file("sovereign-release.jks")
-            storePassword = "sovereign123"
-            keyAlias = "sovereign"
-            keyPassword = "sovereign123"
-        }
-    }
-
-    
     signingConfigs {
         create("permanent") {
             storeFile = file("sovereign-release.jks")
@@ -44,7 +33,6 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("permanent")
-            signingConfig = signingConfigs.getByName("permanent")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -52,7 +40,6 @@ android {
             )
         }
         debug {
-            signingConfig = signingConfigs.getByName("permanent")
             signingConfig = signingConfigs.getByName("permanent")
             applicationIdSuffix = ".debug"
             isDebuggable = true
@@ -109,6 +96,7 @@ dependencies {
     // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

@@ -1,4 +1,4 @@
-name: Sovereign Android APK Build
+name: Sovereign Android APK Build & Test
 
 on:
   push:
@@ -24,6 +24,9 @@ jobs:
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
+
+      - name: Run Unit Tests
+        run: ./gradlew testDebugUnitTest --no-daemon
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon

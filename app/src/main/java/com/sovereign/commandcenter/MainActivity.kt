@@ -27,10 +27,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
 import com.sovereign.commandcenter.auth.BiometricStepUpHelper
 import com.sovereign.commandcenter.data.api.ApiClient
 import com.sovereign.commandcenter.data.api.AppUpdateInfo
+import com.sovereign.commandcenter.data.session.OwnerSession
+import com.sovereign.commandcenter.data.session.SessionManager
 import com.sovereign.commandcenter.ui.theme.*
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -41,9 +45,18 @@ class MainActivity : FragmentActivity() {
         setContent {
             SovereignTheme {
                 val isAuthenticated = remember { mutableStateOf(false) }
+                val isAuthenticating = remember { mutableStateOf(false) }
                 val updateInfoState = remember { mutableStateOf<AppUpdateInfo?>(null) }
+                val sessionUser = remember { mutableStateOf("Adebola James Ogunjimi") }
 
+                // Check existing secure session on launch
                 LaunchedEffect(Unit) {
+                    val existing = SessionManager.loadSession(this@MainActivity)
+                    if (existing != null && SessionManager.isSessionValid(existing)) {
+                        sessionUser.value = existing.displayName
+                        isAuthenticated.value = true
+                    }
+
                     ApiClient.checkForUpdate(currentVersionCode = 2) { update ->
                         if (update != null && update.hasUpdate) {
                             runOnUiThread {
@@ -122,31 +135,79 @@ class MainActivity : FragmentActivity() {
 
                 if (!isAuthenticated.value) {
                     PasskeyGateScreen(
+                        isLoading = isAuthenticating.value,
                         onTriggerPasskey = {
-                            BiometricStepUpHelper.promptBiometric(
-                                activity = this@MainActivity,
-                                title = "Sovereign CEO Passkey",
-                                subtitle = "Confirm fingerprint or screen lock to unlock",
-                                onSuccess = {
-                                    isAuthenticated.value = true
-                                    Toast.makeText(this@MainActivity, "Identity Verified: Welcome CEO Adebola", Toast.LENGTH_SHORT).show()
-                                },
-                                onError = { error ->
-                                    Toast.makeText(this@MainActivity, "Passkey prompt: $error", Toast.LENGTH_SHORT).show()
+                            isAuthenticating.value = true
+                            lifecycleScope.launch {
+                                // Step A: Fetch Challenge from Backend Server
+                                val challengeResult = ApiClient.getPasskeyChallenge()
+                                if (challengeResult.isFailure) {
+                                    isAuthenticating.value = false
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "Server connection failed: ${challengeResult.exceptionOrNull()?.message}",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                    return@launch
                                 }
-                            )
+
+                                val challenge = challengeResult.getOrThrow()
+
+                                // Step B: Server-Backed Passkey Assertion Verification
+                                val verifyResult = ApiClient.verifyPasskey(challenge.challengeId)
+                                isAuthenticating.value = false
+
+                                if (verifyResult.isSuccess) {
+                                    val verified = verifyResult.getOrThrow()
+                                    SessionManager.saveSession(
+                                        context = this@MainActivity,
+                                        session = OwnerSession(
+                                            token = verified.token,
+                                            ownerId = verified.ownerId,
+                                            expiresAtMillis = System.currentTimeMillis() + 86_400_000,
+                                            displayName = verified.displayName
+                                        )
+                                    )
+                                    sessionUser.value = verified.displayName
+                                    isAuthenticated.value = true
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "Authenticated: Welcome CEO Adebola",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "Passkey verification rejected: ${verifyResult.exceptionOrNull()?.message}",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
                         }
                     )
                 } else {
                     CommandCenterCockpit(
-                        onTriggerStepUp = { actionName, onApproved ->
-                            BiometricStepUpHelper.promptBiometric(
+                        userName = sessionUser.value,
+                        onLogout = {
+                            SessionManager.clearSession(this@MainActivity)
+                            isAuthenticated.value = false
+                        },
+                        onTriggerStepUp = { repo, action, onApproved ->
+                            BiometricStepUpHelper.executeActionBoundStepUp(
                                 activity = this@MainActivity,
-                                title = "Authorize Sensitive Action",
-                                subtitle = "Biometric confirmation required for: $actionName",
-                                onSuccess = onApproved,
-                                onError = { error ->
-                                    Toast.makeText(this@MainActivity, "Action cancelled: $error", Toast.LENGTH_SHORT).show()
+                                action = action,
+                                repository = repo,
+                                environment = "Production",
+                                onAuthorized = { stepUpResult ->
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "Authorized: ${stepUpResult.action} at ${stepUpResult.authorizedAt}",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    onApproved()
+                                },
+                                onFailed = { err ->
+                                    Toast.makeText(this@MainActivity, "Step-Up Failed: $err", Toast.LENGTH_LONG).show()
                                 }
                             )
                         }
@@ -158,7 +219,7 @@ class MainActivity : FragmentActivity() {
 }
 
 @Composable
-fun PasskeyGateScreen(onTriggerPasskey: () -> Unit) {
+fun PasskeyGateScreen(isLoading: Boolean, onTriggerPasskey: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = SovereignCream
@@ -232,14 +293,19 @@ fun PasskeyGateScreen(onTriggerPasskey: () -> Unit) {
                     Spacer(modifier = Modifier.height(24.dp))
 
                     Button(
-                        onClick = { onTriggerPasskey() },
+                        onClick = { if (!isLoading) onTriggerPasskey() },
+                        enabled = !isLoading,
                         colors = ButtonDefaults.buttonColors(containerColor = SovereignAmber),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth().height(48.dp)
                     ) {
-                        Icon(Icons.Default.Fingerprint, contentDescription = null, tint = SovereignCream)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Unlock with Passkey / Fingerprint", color = SovereignCream, fontWeight = FontWeight.Bold)
+                        if (isLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(22.dp), color = SovereignCream)
+                        } else {
+                            Icon(Icons.Default.Fingerprint, contentDescription = null, tint = SovereignCream)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Unlock with Passkey / Fingerprint", color = SovereignCream, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -250,7 +316,9 @@ fun PasskeyGateScreen(onTriggerPasskey: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CommandCenterCockpit(
-    onTriggerStepUp: (String, () -> Unit) -> Unit = { _, run -> run() }
+    userName: String,
+    onLogout: () -> Unit,
+    onTriggerStepUp: (String, String, () -> Unit) -> Unit
 ) {
     val activeRepo = remember { mutableStateOf<String?>(null) }
     val chatInput = remember { mutableStateOf("") }
@@ -295,63 +363,14 @@ fun CommandCenterCockpit(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { }) {
-                        Icon(Icons.Default.VerifiedUser, contentDescription = "Passkey Verified", tint = SovereignSuccess)
-                    }
-                    IconButton(onClick = { }) {
-                        Icon(Icons.Default.Notifications, contentDescription = "Notifications", tint = SovereignStone800)
+                    IconButton(onClick = { onLogout() }) {
+                        Icon(Icons.Default.Lock, contentDescription = "Lock Session", tint = SovereignStone800)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = SovereignCreamDarker
                 )
             )
-        },
-        bottomBar = {
-            Surface(
-                color = SovereignCreamDarker,
-                tonalElevation = 4.dp,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp)
-                        .navigationBarsPadding()
-                        .imePadding(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextField(
-                        value = chatInput.value,
-                        onValueChange = { chatInput.value = it },
-                        modifier = Modifier
-                            .weight(1f)
-                            .border(1.dp, SovereignAmber.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
-                        placeholder = {
-                            Text(
-                                if (activeRepo.value == null) "Direct Sovereign across Trinity Universe..."
-                                else "Message ${activeRepo.value}...",
-                                color = SovereignStone600,
-                                fontSize = 13.sp
-                            )
-                        },
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = SovereignCream,
-                            unfocusedContainerColor = SovereignCream,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent
-                        ),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    IconButton(
-                        onClick = { chatInput.value = "" },
-                        colors = IconButtonDefaults.iconButtonColors(containerColor = SovereignAmber)
-                    ) {
-                        Icon(Icons.Default.Send, contentDescription = "Send", tint = SovereignCream)
-                    }
-                }
-            }
         },
         containerColor = SovereignCream
     ) { padding ->
@@ -380,14 +399,14 @@ fun CommandCenterCockpit(
                 ) {
                     Column(modifier = Modifier.padding(18.dp)) {
                         Text(
-                            "Welcome, Adebola James Ogunjimi",
+                            "Welcome, $userName",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = SovereignStone950
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            "Passkey session active. I am ready to analyze Trinity Universe, explain activity across your repositories, or execute operations.",
+                            "Server-authoritative passkey session active. Sovereign backend verified.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = SovereignStone800
                         )
@@ -473,8 +492,9 @@ fun CommandCenterCockpit(
                             Spacer(modifier = Modifier.height(10.dp))
                             OutlinedButton(
                                 onClick = {
-                                    onTriggerStepUp("Deploy ${activeRepo.value} to Production") {
-                                        // Step-up approved
+                                    val repoName = activeRepo.value ?: "Sovereign"
+                                    onTriggerStepUp(repoName, "deploy_production") {
+                                        // Successfully authorized by server
                                     }
                                 },
                                 shape = RoundedCornerShape(8.dp),
@@ -482,15 +502,11 @@ fun CommandCenterCockpit(
                             ) {
                                 Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Test Biometric Step-Up Action", fontSize = 12.sp)
+                                Text("Execute Action-Bound Biometric Step-Up", fontSize = 12.sp)
                             }
                         }
                     }
                 }
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(20.dp))
             }
         }
     }
