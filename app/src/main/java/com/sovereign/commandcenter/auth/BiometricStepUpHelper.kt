@@ -1,6 +1,5 @@
 package com.sovereign.commandcenter.auth
 
-import android.content.Context
 import android.util.Base64
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -46,11 +45,58 @@ object BiometricStepUpHelper {
     }
 
     /**
-     * Executes an action-bound cryptographic step-up verification:
-     * 1. Fetches single-use nonce from server
-     * 2. Shows biometric prompt
-     * 3. Signs nonce:action:repository:environment payload using device Keystore key
-     * 4. Submits signature to backend server for authoritative verification
+     * CEO Login Biometric Gate (supports Fingerprint with Device PIN/Credential fallback)
+     */
+    fun authenticateCeoLogin(
+        activity: FragmentActivity,
+        onSucceeded: () -> Unit,
+        onFailed: (String) -> Unit
+    ) {
+        val biometricManager = BiometricManager.from(activity)
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+
+        val canAuth = biometricManager.canAuthenticate(authenticators)
+        if (canAuth != BiometricManager.BIOMETRIC_SUCCESS) {
+            // If biometrics not enrolled or supported, allow proceed with warning or fallback
+            onSucceeded()
+            return
+        }
+
+        val executor = ContextCompat.getMainExecutor(activity)
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Sovereign CEO Passkey Gate")
+            .setSubtitle("Adebola James Ogunjimi")
+            .setDescription("Touch fingerprint sensor to unlock Command Center")
+            .setAllowedAuthenticators(authenticators)
+            .build()
+
+        val prompt = BiometricPrompt(activity, executor, object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                super.onAuthenticationSucceeded(result)
+                onSucceeded()
+            }
+
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                super.onAuthenticationError(errorCode, errString)
+                if (errorCode == BiometricPrompt.ERROR_USER_CANCELED || errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
+                    onFailed("Authentication cancelled.")
+                } else {
+                    onFailed("Biometric error ($errorCode): $errString")
+                }
+            }
+
+            override fun onAuthenticationFailed() {
+                super.onAuthenticationFailed()
+                // Fingerprint rejected; prompt remains open
+            }
+        })
+
+        prompt.authenticate(promptInfo)
+    }
+
+    /**
+     * Action-Bound Cryptographic Step-Up Authorization (Samsung Knox / S20 Compliant)
      */
     fun executeActionBoundStepUp(
         activity: FragmentActivity,
@@ -62,7 +108,7 @@ object BiometricStepUpHelper {
         onFailed: (String) -> Unit
     ) {
         CoroutineScope(Dispatchers.Main).launch {
-            // Step 1: Request Server Challenge
+            // Step 1: Request Server Challenge Nonce
             val challengeResult = ApiClient.getStepUpChallenge()
             if (challengeResult.isFailure) {
                 onFailed("Failed to fetch step-up challenge: ${challengeResult.exceptionOrNull()?.message}")
@@ -82,13 +128,13 @@ object BiometricStepUpHelper {
             }
 
             val executor = ContextCompat.getMainExecutor(activity)
-            val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
 
+            // CRITICAL: CryptoObject requires BIOMETRIC_STRONG ONLY and setNegativeButtonText on Samsung Knox / S20
             val promptInfo = BiometricPrompt.PromptInfo.Builder()
                 .setTitle("Authorize High-Risk Action")
                 .setSubtitle("$action on $repository ($environment)")
-                .setAllowedAuthenticators(authenticators)
+                .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+                .setNegativeButtonText("Cancel")
                 .build()
 
             val biometricPrompt = BiometricPrompt(activity, executor, object : BiometricPrompt.AuthenticationCallback() {
@@ -96,11 +142,12 @@ object BiometricStepUpHelper {
                     super.onAuthenticationSucceeded(result)
                     CoroutineScope(Dispatchers.Main).launch {
                         try {
-                            signature.update(payloadToSign.toByteArray(StandardCharsets.UTF_8))
-                            val signatureBytes = signature.sign()
+                            val activeSignature = result.cryptoObject?.signature ?: signature
+                            activeSignature.update(payloadToSign.toByteArray(StandardCharsets.UTF_8))
+                            val signatureBytes = activeSignature.sign()
                             val signatureBase64 = Base64.encodeToString(signatureBytes, Base64.NO_WRAP)
 
-                            // Step 3: Verify on Server
+                            // Step 3: Server-side cryptographic verification
                             val verifyResult = ApiClient.verifyStepUp(
                                 nonce = challenge.nonce,
                                 signature = signatureBase64,
@@ -120,39 +167,14 @@ object BiometricStepUpHelper {
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                     super.onAuthenticationError(errorCode, errString)
-                    onFailed("Biometric unlock error: $errString")
+                    onFailed("Biometric authorization cancelled: $errString")
                 }
             })
 
             try {
                 biometricPrompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(signature))
             } catch (e: Exception) {
-                // Fallback to authenticate without CryptoObject if device does not support CryptoObject with BiometricStrong
-                val fallbackPrompt = BiometricPrompt(activity, executor, object : BiometricPrompt.AuthenticationCallback() {
-                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                        super.onAuthenticationSucceeded(result)
-                        CoroutineScope(Dispatchers.Main).launch {
-                            try {
-                                signature.update(payloadToSign.toByteArray(StandardCharsets.UTF_8))
-                                val sig = Base64.encodeToString(signature.sign(), Base64.NO_WRAP)
-                                val verifyResult = ApiClient.verifyStepUp(challenge.nonce, sig, action)
-                                if (verifyResult.isSuccess && verifyResult.getOrThrow().authorized) {
-                                    onAuthorized(verifyResult.getOrThrow())
-                                } else {
-                                    onFailed("Step-up unauthorized by server.")
-                                }
-                            } catch (ex: Exception) {
-                                onFailed("Signing failed: ${ex.message}")
-                            }
-                        }
-                    }
-
-                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                        super.onAuthenticationError(errorCode, errString)
-                        onFailed("Unlock cancelled: $errString")
-                    }
-                })
-                fallbackPrompt.authenticate(promptInfo)
+                onFailed("Biometric sensor prompt failed: ${e.message}")
             }
         }
     }

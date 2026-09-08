@@ -42,12 +42,16 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Initialize configured baseUrl from persistent storage
+        ApiClient.baseUrl = SessionManager.getBaseUrl(this)
+
         setContent {
             SovereignTheme {
                 val isAuthenticated = remember { mutableStateOf(false) }
                 val isAuthenticating = remember { mutableStateOf(false) }
                 val updateInfoState = remember { mutableStateOf<AppUpdateInfo?>(null) }
                 val sessionUser = remember { mutableStateOf("Adebola James Ogunjimi") }
+                val showServerConfigDialog = remember { mutableStateOf(false) }
 
                 // Check existing secure session on launch
                 LaunchedEffect(Unit) {
@@ -64,6 +68,47 @@ class MainActivity : FragmentActivity() {
                             }
                         }
                     }
+                }
+
+                // Server Configuration Dialog
+                if (showServerConfigDialog.value) {
+                    var inputUrl by remember { mutableStateOf(ApiClient.baseUrl) }
+                    AlertDialog(
+                        onDismissRequest = { showServerConfigDialog.value = false },
+                        title = { Text("Server Endpoint Configuration", fontWeight = FontWeight.Bold) },
+                        text = {
+                            Column {
+                                Text("Enter the Sovereign Backend URL (e.g., http://192.168.1.50:5000 or https://your-server.com):", fontSize = 13.sp)
+                                Spacer(modifier = Modifier.height(10.dp))
+                                OutlinedTextField(
+                                    value = inputUrl,
+                                    onValueChange = { inputUrl = it },
+                                    label = { Text("Server URL") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    if (inputUrl.isNotBlank()) {
+                                        SessionManager.setBaseUrl(this@MainActivity, inputUrl)
+                                        Toast.makeText(this@MainActivity, "Server set to: ${ApiClient.baseUrl}", Toast.LENGTH_SHORT).show()
+                                    }
+                                    showServerConfigDialog.value = false
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = SovereignAmber)
+                            ) {
+                                Text("Save", color = SovereignCream)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showServerConfigDialog.value = false }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
                 }
 
                 if (updateInfoState.value != null) {
@@ -136,53 +181,66 @@ class MainActivity : FragmentActivity() {
                 if (!isAuthenticated.value) {
                     PasskeyGateScreen(
                         isLoading = isAuthenticating.value,
+                        serverUrl = ApiClient.baseUrl,
+                        onOpenSettings = { showServerConfigDialog.value = true },
                         onTriggerPasskey = {
                             isAuthenticating.value = true
-                            lifecycleScope.launch {
-                                // Step A: Fetch Challenge from Backend Server
-                                val challengeResult = ApiClient.getPasskeyChallenge()
-                                if (challengeResult.isFailure) {
+
+                            // Step 1: Engage native hardware biometric prompt on Samsung S20
+                            BiometricStepUpHelper.authenticateCeoLogin(
+                                activity = this@MainActivity,
+                                onSucceeded = {
+                                    lifecycleScope.launch {
+                                        // Step 2: Fetch challenge from Sovereign server
+                                        val challengeResult = ApiClient.getPasskeyChallenge()
+                                        if (challengeResult.isFailure) {
+                                            isAuthenticating.value = false
+                                            Toast.makeText(
+                                                this@MainActivity,
+                                                "Server connection failed (${ApiClient.baseUrl}): ${challengeResult.exceptionOrNull()?.message}",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                            return@launch
+                                        }
+
+                                        val challenge = challengeResult.getOrThrow()
+
+                                        // Step 3: Verify passkey assertion with backend server
+                                        val verifyResult = ApiClient.verifyPasskey(challenge.challengeId)
+                                        isAuthenticating.value = false
+
+                                        if (verifyResult.isSuccess) {
+                                            val verified = verifyResult.getOrThrow()
+                                            SessionManager.saveSession(
+                                                context = this@MainActivity,
+                                                session = OwnerSession(
+                                                    token = verified.token,
+                                                    ownerId = verified.ownerId,
+                                                    expiresAtMillis = System.currentTimeMillis() + 86_400_000,
+                                                    displayName = verified.displayName
+                                                )
+                                            )
+                                            sessionUser.value = verified.displayName
+                                            isAuthenticated.value = true
+                                            Toast.makeText(
+                                                this@MainActivity,
+                                                "Welcome CEO Adebola James Ogunjimi",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } else {
+                                            Toast.makeText(
+                                                this@MainActivity,
+                                                "Verification rejected: ${verifyResult.exceptionOrNull()?.message}",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                                },
+                                onFailed = { reason ->
                                     isAuthenticating.value = false
-                                    Toast.makeText(
-                                        this@MainActivity,
-                                        "Server connection failed: ${challengeResult.exceptionOrNull()?.message}",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                    return@launch
+                                    Toast.makeText(this@MainActivity, reason, Toast.LENGTH_SHORT).show()
                                 }
-
-                                val challenge = challengeResult.getOrThrow()
-
-                                // Step B: Server-Backed Passkey Assertion Verification
-                                val verifyResult = ApiClient.verifyPasskey(challenge.challengeId)
-                                isAuthenticating.value = false
-
-                                if (verifyResult.isSuccess) {
-                                    val verified = verifyResult.getOrThrow()
-                                    SessionManager.saveSession(
-                                        context = this@MainActivity,
-                                        session = OwnerSession(
-                                            token = verified.token,
-                                            ownerId = verified.ownerId,
-                                            expiresAtMillis = System.currentTimeMillis() + 86_400_000,
-                                            displayName = verified.displayName
-                                        )
-                                    )
-                                    sessionUser.value = verified.displayName
-                                    isAuthenticated.value = true
-                                    Toast.makeText(
-                                        this@MainActivity,
-                                        "Authenticated: Welcome CEO Adebola",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                } else {
-                                    Toast.makeText(
-                                        this@MainActivity,
-                                        "Passkey verification rejected: ${verifyResult.exceptionOrNull()?.message}",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                }
-                            }
+                            )
                         }
                     )
                 } else {
@@ -219,92 +277,118 @@ class MainActivity : FragmentActivity() {
 }
 
 @Composable
-fun PasskeyGateScreen(isLoading: Boolean, onTriggerPasskey: () -> Unit) {
+fun PasskeyGateScreen(
+    isLoading: Boolean,
+    serverUrl: String,
+    onOpenSettings: () -> Unit,
+    onTriggerPasskey: () -> Unit
+) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = SovereignCream
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Box(
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Settings Icon to configure Server URL
+            IconButton(
+                onClick = onOpenSettings,
                 modifier = Modifier
-                    .size(80.dp)
-                    .background(SovereignAmber, CircleShape),
-                contentAlignment = Alignment.Center
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
             ) {
-                Text("👑", fontSize = 42.sp)
+                Icon(Icons.Default.Settings, contentDescription = "Server Settings", tint = SovereignStone800)
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Text(
-                "SOVEREIGN",
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 2.sp,
-                color = SovereignAmberDark
-            )
-
-            Text(
-                "Command Center • Trinity Universe",
-                style = MaterialTheme.typography.labelSmall,
-                color = SovereignStone600
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = SovereignCreamDarker),
-                shape = RoundedCornerShape(20.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.35f)),
-                modifier = Modifier.fillMaxWidth()
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .background(SovereignAmber, CircleShape),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        Icons.Default.Fingerprint,
-                        contentDescription = null,
-                        modifier = Modifier.size(54.dp),
-                        tint = SovereignAmber
-                    )
+                    Text("👑", fontSize = 42.sp)
+                }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
-                    Text(
-                        "CEO Passkey Gate",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = SovereignStone950
-                    )
+                Text(
+                    "SOVEREIGN",
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.sp,
+                    color = SovereignAmberDark
+                )
 
-                    Text(
-                        "Adebola James Ogunjimi",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = SovereignStone800
-                    )
+                Text(
+                    "Command Center • Trinity Universe",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SovereignStone600
+                )
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
-                    Button(
-                        onClick = { if (!isLoading) onTriggerPasskey() },
-                        enabled = !isLoading,
-                        colors = ButtonDefaults.buttonColors(containerColor = SovereignAmber),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = SovereignCreamDarker),
+                    shape = RoundedCornerShape(20.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        if (isLoading) {
-                            CircularProgressIndicator(modifier = Modifier.size(22.dp), color = SovereignCream)
-                        } else {
-                            Icon(Icons.Default.Fingerprint, contentDescription = null, tint = SovereignCream)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Unlock with Passkey / Fingerprint", color = SovereignCream, fontWeight = FontWeight.Bold)
+                        Icon(
+                            Icons.Default.Fingerprint,
+                            contentDescription = null,
+                            modifier = Modifier.size(54.dp),
+                            tint = SovereignAmber
+                        )
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Text(
+                            "CEO Passkey Gate",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = SovereignStone950
+                        )
+
+                        Text(
+                            "Adebola James Ogunjimi",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = SovereignStone800
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            "Server: $serverUrl",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = SovereignStone600
+                        )
+
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        Button(
+                            onClick = { if (!isLoading) onTriggerPasskey() },
+                            enabled = !isLoading,
+                            colors = ButtonDefaults.buttonColors(containerColor = SovereignAmber),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().height(48.dp)
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(22.dp), color = SovereignCream)
+                            } else {
+                                Icon(Icons.Default.Fingerprint, contentDescription = null, tint = SovereignCream)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Unlock with Passkey / Fingerprint", color = SovereignCream, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
