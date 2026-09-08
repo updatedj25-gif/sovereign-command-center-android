@@ -5,6 +5,9 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
+import com.sovereign.commandcenter.ui.CommandCenterViewModel
+import com.sovereign.commandcenter.ui.CommandCenterCockpit
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,6 +42,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : FragmentActivity() {
+    private val viewModel: CommandCenterViewModel by viewModels()
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -59,6 +63,7 @@ class MainActivity : FragmentActivity() {
                     if (existing != null && SessionManager.isSessionValid(existing)) {
                         sessionUser.value = existing.displayName
                         isAuthenticated.value = true
+                        viewModel.checkExistingSession(this@MainActivity)
                     }
 
                     ApiClient.checkForUpdate(currentVersionCode = 2) { update ->
@@ -222,6 +227,7 @@ class MainActivity : FragmentActivity() {
                                             )
                                             sessionUser.value = verified.displayName
                                             isAuthenticated.value = true
+                                            viewModel.checkExistingSession(this@MainActivity)
                                             Toast.makeText(
                                                 this@MainActivity,
                                                 "Welcome CEO Adebola James Ogunjimi",
@@ -246,6 +252,7 @@ class MainActivity : FragmentActivity() {
                 } else {
                     CommandCenterCockpit(
                         userName = sessionUser.value,
+                        viewModel = viewModel,
                         onLogout = {
                             SessionManager.clearSession(this@MainActivity)
                             isAuthenticated.value = false
@@ -388,205 +395,6 @@ fun PasskeyGateScreen(
                                 Icon(Icons.Default.Fingerprint, contentDescription = null, tint = SovereignCream)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("Unlock with Passkey / Fingerprint", color = SovereignCream, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun CommandCenterCockpit(
-    userName: String,
-    onLogout: () -> Unit,
-    onTriggerStepUp: (String, String, () -> Unit) -> Unit
-) {
-    val activeRepo = remember { mutableStateOf<String?>(null) }
-    val chatInput = remember { mutableStateOf("") }
-    val now = remember { SimpleDateFormat("EEEE, MMMM d, yyyy | h:mm a", Locale.getDefault()).format(Date()) }
-
-    val repositories = listOf(
-        "Sovereign Coding Agent",
-        "Trinity Universe Website",
-        "Sovereign Command Center",
-        "Main Portal",
-        "Book Library"
-    )
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(SovereignAmber, RoundedCornerShape(8.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("👑", fontSize = 18.sp)
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                "SOVEREIGN",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 1.2.sp,
-                                color = SovereignAmberDark
-                            )
-                            Text(
-                                "Trinity Universe Cockpit",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = SovereignStone600
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { onLogout() }) {
-                        Icon(Icons.Default.Lock, contentDescription = "Lock Session", tint = SovereignStone800)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = SovereignCreamDarker
-                )
-            )
-        },
-        containerColor = SovereignCream
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = now,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = SovereignStone600
-                )
-            }
-
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = SovereignCreamDarker),
-                    shape = RoundedCornerShape(16.dp),
-                    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(SovereignAmber.copy(alpha = 0.25f))),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
-                        Text(
-                            "Welcome, $userName",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = SovereignStone950
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            "Server-authoritative passkey session active. Sovereign backend verified.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = SovereignStone800
-                        )
-                    }
-                }
-            }
-
-            item {
-                Text(
-                    "ORGANIZATION REPOSITORIES",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = SovereignAmberDark,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(repositories) { repo ->
-                        val isSelected = activeRepo.value == repo
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isSelected) SovereignAmber else SovereignCreamDarker,
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                if (isSelected) SovereignAmberDark else SovereignAmber.copy(alpha = 0.35f)
-                            ),
-                            modifier = Modifier.clickable {
-                                activeRepo.value = if (isSelected) null else repo
-                            }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Default.Code,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = if (isSelected) SovereignCream else SovereignAmber
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    repo,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) SovereignCream else SovereignStone900
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (activeRepo.value != null) {
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = SovereignAmberSurface.copy(alpha = 0.45f)),
-                        shape = RoundedCornerShape(14.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.3f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Text(
-                                "ACTIVE REPOSITORY CONTEXT",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = SovereignAmberDark,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                activeRepo.value ?: "",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = SovereignStone950
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                "Branch: main • Environment: Production • Security: Protected",
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = SovereignStone800
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            OutlinedButton(
-                                onClick = {
-                                    val repoName = activeRepo.value ?: "Sovereign"
-                                    onTriggerStepUp(repoName, "deploy_production") {
-                                        // Successfully authorized by server
-                                    }
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = SovereignAmberDark)
-                            ) {
-                                Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Execute Action-Bound Biometric Step-Up", fontSize = 12.sp)
                             }
                         }
                     }
