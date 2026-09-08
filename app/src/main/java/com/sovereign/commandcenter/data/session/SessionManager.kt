@@ -3,6 +3,7 @@ package com.sovereign.commandcenter.data.session
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Base64
+import com.sovereign.commandcenter.data.api.ApiClient
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -25,11 +26,24 @@ object SessionManager {
     private const val KEY_OWNER_ID = "session_owner_id"
     private const val KEY_EXPIRES_AT = "session_expires_at"
     private const val KEY_DISPLAY_NAME = "session_display_name"
+    private const val KEY_BASE_URL = "api_server_base_url"
     private const val ANDROID_KEYSTORE = "AndroidKeyStore"
     private const val GCM_TAG_LENGTH = 128
 
     @Volatile
     private var inMemorySession: OwnerSession? = null
+
+    fun getBaseUrl(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_BASE_URL, ApiClient.baseUrl) ?: ApiClient.baseUrl
+    }
+
+    fun setBaseUrl(context: Context, url: String) {
+        val cleaned = url.trim().removeSuffix("/")
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_BASE_URL, cleaned).apply()
+        ApiClient.baseUrl = cleaned
+    }
 
     private fun getOrCreateSecretKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
@@ -82,7 +96,7 @@ object SessionManager {
                 .putLong(KEY_EXPIRES_AT, session.expiresAtMillis)
                 .putString(KEY_DISPLAY_NAME, session.displayName)
                 .apply()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             // Keep in-memory session if keystore operation encounters platform quirks
         }
     }
@@ -116,7 +130,7 @@ object SessionManager {
             )
             inMemorySession = restored
             return restored
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             clearSession(context)
             return null
         }
@@ -142,7 +156,13 @@ object SessionManager {
         if (context != null) {
             try {
                 val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                prefs.edit().clear().apply()
+                prefs.edit()
+                    .remove(KEY_CIPHER_TOKEN)
+                    .remove(KEY_CIPHER_IV)
+                    .remove(KEY_OWNER_ID)
+                    .remove(KEY_EXPIRES_AT)
+                    .remove(KEY_DISPLAY_NAME)
+                    .apply()
             } catch (_: Exception) {}
         }
     }
