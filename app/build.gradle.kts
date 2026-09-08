@@ -22,17 +22,23 @@ android {
     }
 
     signingConfigs {
-        create("permanent") {
-            storeFile = file("sovereign-release.jks")
-            storePassword = "sovereign123"
-            keyAlias = "sovereign"
-            keyPassword = "sovereign123"
+        create("release") {
+            val ksPath = System.getenv("KEYSTORE_FILE")
+            val ksPass = System.getenv("KEYSTORE_PASSWORD")
+            val kAlias = System.getenv("KEY_ALIAS")
+            val kPass = System.getenv("KEY_PASSWORD")
+            if (!ksPath.isNullOrBlank() && !ksPass.isNullOrBlank()) {
+                storeFile = file(ksPath)
+                storePassword = ksPass
+                keyAlias = kAlias ?: ""
+                keyPassword = kPass ?: ""
+            }
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("permanent")
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -40,7 +46,6 @@ android {
             )
         }
         debug {
-            signingConfig = signingConfigs.getByName("permanent")
             applicationIdSuffix = ".debug"
             isDebuggable = true
         }
@@ -57,6 +62,10 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 
     packaging {
@@ -97,6 +106,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("org.json:json:20240303")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
