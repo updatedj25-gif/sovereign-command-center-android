@@ -39,7 +39,7 @@ data class StreamRequestContext(
     val workspaceContextVersion: Long = 1L
 )
 
-class AgentStreamClient {
+open class AgentStreamClient {
     private val client = ApiClient.okHttpClient
     private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
 
@@ -50,7 +50,7 @@ class AgentStreamClient {
      * Cold flow tied to the caller coroutine scope (e.g. viewModelScope).
      * Automatically closes network streams and cancels calls when cancelled.
      */
-    fun streamPrompt(
+    open fun streamPrompt(
         context: StreamRequestContext,
         history: List<Pair<String, String>> = emptyList()
     ): Flow<StreamEvent> = callbackFlow {

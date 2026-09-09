@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -51,10 +52,10 @@ class MainActivity : FragmentActivity() {
 
         setContent {
             SovereignTheme {
-                val isAuthenticated = remember { mutableStateOf(false) }
-                val isAuthenticating = remember { mutableStateOf(false) }
+                val isAuthenticated = rememberSaveable { mutableStateOf(false) }
+                val isAuthenticating = rememberSaveable { mutableStateOf(false) }
                 val updateInfoState = remember { mutableStateOf<AppUpdateInfo?>(null) }
-                val sessionUser = remember { mutableStateOf("Adebola James Ogunjimi") }
+                val sessionUser = rememberSaveable { mutableStateOf("Adebola James Ogunjimi") }
                 val showServerConfigDialog = remember { mutableStateOf(false) }
 
                 // Check existing secure session on launch
@@ -254,8 +255,10 @@ class MainActivity : FragmentActivity() {
                         userName = sessionUser.value,
                         viewModel = viewModel,
                         onLogout = {
+                            viewModel.logout(this@MainActivity)
                             SessionManager.clearSession(this@MainActivity)
                             isAuthenticated.value = false
+                            isAuthenticating.value = false
                         },
                         onTriggerStepUp = { repo, action, onApproved ->
                             BiometricStepUpHelper.executeActionBoundStepUp(
