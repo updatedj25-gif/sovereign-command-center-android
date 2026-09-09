@@ -1,5 +1,8 @@
 package com.sovereign.commandcenter
 
+import android.app.DownloadManager
+import android.os.Environment
+
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -168,15 +171,28 @@ class MainActivity : FragmentActivity() {
                                     }
                                     Button(
                                         onClick = {
+                                            val apkUrl = update.downloadUrl
                                             updateInfoState.value = null
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(update.downloadUrl))
-                                            startActivity(intent)
+                                            try {
+                                                val dm = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+                                                val req = DownloadManager.Request(Uri.parse(apkUrl))
+                                                    .setTitle("Sovereign Command Center Update")
+                                                    .setDescription("Downloading latest APK...")
+                                                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                                    .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "sovereign-command-center-latest.apk")
+                                                    .setMimeType("application/vnd.android.package-archive")
+                                                dm.enqueue(req)
+                                                Toast.makeText(this@MainActivity, "Downloading new APK... Check notifications to install.", Toast.LENGTH_LONG).show()
+                                            } catch (e: Exception) {
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl))
+                                                startActivity(intent)
+                                            }
                                         },
                                         modifier = Modifier.weight(1f),
                                         colors = ButtonDefaults.buttonColors(containerColor = SovereignAmber),
                                         shape = RoundedCornerShape(10.dp)
                                     ) {
-                                        Text("Download Now", color = SovereignCream, fontWeight = FontWeight.Bold)
+                                        Text("Download New Version", color = SovereignCream, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }

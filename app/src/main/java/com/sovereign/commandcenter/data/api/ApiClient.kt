@@ -354,8 +354,8 @@ object ApiClient {
         }
     }
 
-    // --- 5. GitHub Updates (Preserved) ---
-    fun checkForUpdate(currentVersionCode: Int, onResult: (AppUpdateInfo?) -> Unit) {
+    // --- 5. GitHub Updates (Dynamic Auto-Updater) ---
+    fun checkForUpdate(currentVersionCode: Int = 2, onResult: (AppUpdateInfo?) -> Unit) {
         Thread {
             try {
                 val req = Request.Builder()
@@ -366,24 +366,28 @@ object ApiClient {
                 val bodyStr = resp.body?.string() ?: ""
                 if (resp.isSuccessful && bodyStr.isNotEmpty()) {
                     val json = JSONObject(bodyStr)
-                    val tagName = json.optString("tag_name", "v1.0.1")
-                    val notes = json.optString("body", "Security updates and streaming client.")
+                    val tagName = json.optString("tag_name", "latest")
+                    val notes = json.optString("body", "Latest build updates and improvements.")
+                    val defaultApk = "https://github.com/updatedj25-gif/sovereign-command-center-android/releases/download/latest/app-debug.apk"
+                    var apkUrl = defaultApk
+
                     val assets = json.optJSONArray("assets")
-                    var downloadUrl = ""
                     if (assets != null && assets.length() > 0) {
                         for (i in 0 until assets.length()) {
                             val asset = assets.getJSONObject(i)
                             if (asset.optString("name").endsWith(".apk")) {
-                                downloadUrl = asset.optString("browser_download_url")
+                                apkUrl = asset.optString("browser_download_url")
                                 break
                             }
                         }
                     }
-                    if (downloadUrl.isEmpty()) {
-                        downloadUrl = "https://github.com/updatedj25-gif/sovereign-command-center-android/releases"
-                    }
-                    val isNewer = tagName != "v1.0.0" && tagName != "v1.0.1"
-                    onResult(AppUpdateInfo(isNewer, tagName, notes, downloadUrl))
+
+                    onResult(AppUpdateInfo(
+                        hasUpdate = true,
+                        versionName = tagName,
+                        releaseNotes = notes,
+                        downloadUrl = apkUrl
+                    ))
                 } else {
                     onResult(null)
                 }
