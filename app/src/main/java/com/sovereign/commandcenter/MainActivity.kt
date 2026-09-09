@@ -188,6 +188,9 @@ class MainActivity : FragmentActivity() {
                     PasskeyGateScreen(
                         isLoading = isAuthenticating.value,
                         serverUrl = ApiClient.baseUrl,
+                        onServerUrlChanged = { newUrl ->
+                            SessionManager.setBaseUrl(this@MainActivity, newUrl)
+                        },
                         onOpenSettings = { showServerConfigDialog.value = true },
                         onTriggerPasskey = {
                             isAuthenticating.value = true
@@ -290,6 +293,7 @@ class MainActivity : FragmentActivity() {
 fun PasskeyGateScreen(
     isLoading: Boolean,
     serverUrl: String,
+    onServerUrlChanged: (String) -> Unit = {},
     onOpenSettings: () -> Unit,
     onTriggerPasskey: () -> Unit
 ) {
@@ -374,16 +378,42 @@ fun PasskeyGateScreen(
                             color = SovereignStone800
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                        Text(
-                            "Server: $serverUrl",
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = SovereignStone600
+                        var isEditingUrl by remember { mutableStateOf(serverUrl.contains("10.0.2.2")) }
+                        var urlInput by remember(serverUrl) { mutableStateOf(serverUrl) }
+
+                        if (serverUrl.contains("10.0.2.2")) {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color(0xFFFFF3CD)),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                            ) {
+                                Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("⚠️", fontSize = 16.sp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        "Emulator URL (10.0.2.2) detected. Please enter your live HTTPS backend URL below for your phone.",
+                                        fontSize = 11.sp,
+                                        color = androidx.compose.ui.graphics.Color(0xFF856404)
+                                    )
+                                }
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = urlInput,
+                            onValueChange = {
+                                urlInput = it
+                                onServerUrlChanged(it)
+                            },
+                            label = { Text("Server Backend URL", fontSize = 12.sp) },
+                            singleLine = true,
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, fontFamily = FontFamily.Monospace),
+                            modifier = Modifier.fillMaxWidth()
                         )
 
-                        Spacer(modifier = Modifier.height(20.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
                         Button(
                             onClick = { if (!isLoading) onTriggerPasskey() },
