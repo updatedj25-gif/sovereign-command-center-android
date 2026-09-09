@@ -14,3 +14,6 @@ app/build/
 *.jks
 *.keystore
 local.properties
+
+# Kotlin daemon cache
+.kotlin/
