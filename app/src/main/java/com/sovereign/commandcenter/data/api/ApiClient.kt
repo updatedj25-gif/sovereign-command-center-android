@@ -90,7 +90,7 @@ object ApiClient {
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
     @Volatile
-    var baseUrl: String = "http://10.0.2.2:5000" // Default Android Emulator host loopback; configurable
+    var baseUrl: String = "https://sovereign-agent-api-production.trinityceo717.workers.dev" // Default Android Emulator host loopback; configurable
 
     val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
