@@ -40,7 +40,9 @@ data class StreamRequestContext(
 )
 
 open class AgentStreamClient {
-    private val client = ApiClient.okHttpClient
+    private val client = ApiClient.okHttpClient.newBuilder()
+        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
     private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
 
     @Volatile
@@ -183,6 +185,9 @@ open class AgentStreamClient {
                             message = json.optString("message", "Session conflict")
                         )
                     )
+                }
+                "completed" -> {
+                    emitter(StreamEvent.Completed)
                 }
                 "error" -> {
                     emitter(StreamEvent.Error(json.optString("error", "Unknown agent error")))
