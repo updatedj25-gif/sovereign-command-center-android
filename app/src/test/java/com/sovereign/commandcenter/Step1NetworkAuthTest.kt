@@ -22,12 +22,14 @@ class Step1NetworkAuthTest {
     fun setUp() {
         server = MockWebServer()
         server.start()
+        ApiClient.allowTestOverride = true
         ApiClient.baseUrl = server.url("").toString().removeSuffix("/")
     }
 
     @After
     fun tearDown() {
         server.shutdown()
+        ApiClient.allowTestOverride = false
         SessionManager.clearSession()
     }
 

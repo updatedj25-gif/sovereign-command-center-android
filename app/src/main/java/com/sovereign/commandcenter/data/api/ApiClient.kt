@@ -14,9 +14,13 @@ import java.util.concurrent.TimeUnit
 // Data models
 data class AppUpdateInfo(
     val hasUpdate: Boolean,
-    val versionName: String,
-    val releaseNotes: String,
-    val downloadUrl: String
+    val versionCode: Int = 0,
+    val versionName: String = "",
+    val releaseNotes: String = "",
+    val downloadUrl: String = "",
+    val sha256: String = "",
+    val signingCertificateSha256: String = "",
+    val mandatory: Boolean = false
 )
 
 data class PasskeyChallengeResponse(
@@ -87,10 +91,21 @@ data class ApprovalResult(
 )
 
 object ApiClient {
+    @Volatile
+    var allowTestOverride: Boolean = false
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
     @Volatile
-    var baseUrl: String = "https://sovereign-agent-api-production.trinityceo717.workers.dev" // Default Android Emulator host loopback; configurable
+    var baseUrl: String = com.sovereign.commandcenter.BuildConfig.API_BASE_URL
+        set(value) {
+            val sanitized = value.trim().removeSuffix("/")
+            if (!com.sovereign.commandcenter.BuildConfig.DEBUG && !allowTestOverride) {
+                require(sanitized.startsWith("https://")) { "Release builds permit HTTPS only" }
+                require(!sanitized.contains("localhost") && !sanitized.contains("127.0.0.1") && !sanitized.contains("10.0.2.2")) { "Release builds reject local loopbacks" }
+                require(!sanitized.contains("trycloudflare.com")) { "Temporary tunnels are forbidden" }
+            }
+            field = sanitized
+        }
 
     val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
@@ -359,41 +374,104 @@ object ApiClient {
         Thread {
             try {
                 val req = Request.Builder()
-                    .url("https://api.github.com/repos/updatedj25-gif/sovereign-command-center-android/releases/latest")
-                    .header("Accept", "application/vnd.github.v3+json")
+                    .url("$baseUrl/api/command-center/mobile/android/update")
+                    .header("Accept", "application/json")
                     .build()
                 val resp = okHttpClient.newCall(req).execute()
                 val bodyStr = resp.body?.string() ?: ""
                 if (resp.isSuccessful && bodyStr.isNotEmpty()) {
                     val json = JSONObject(bodyStr)
-                    val tagName = json.optString("tag_name", "latest")
-                    val notes = json.optString("body", "Latest build updates and improvements.")
-                    val defaultApk = "https://github.com/updatedj25-gif/sovereign-command-center-android/releases/download/latest/app-debug.apk"
-                    var apkUrl = defaultApk
+                    val serverVersionCode = json.optInt("versionCode", 0)
+                    val versionName = json.optString("versionName", "")
+                    val releaseNotes = json.optString("releaseNotes", "System updates and security improvements.")
+                    val downloadUrl = json.optString("apkUrl", "")
+                    val sha256 = json.optString("sha256", "")
+                    val certSha256 = json.optString("signingCertificateSha256", "")
+                    val mandatory = json.optBoolean("mandatory", false)
 
-                    val assets = json.optJSONArray("assets")
-                    if (assets != null && assets.length() > 0) {
-                        for (i in 0 until assets.length()) {
-                            val asset = assets.getJSONObject(i)
-                            if (asset.optString("name").endsWith(".apk")) {
-                                apkUrl = asset.optString("browser_download_url")
-                                break
-                            }
-                        }
-                    }
+                    val hasUpdate = serverVersionCode > currentVersionCode && downloadUrl.startsWith("https://")
 
                     onResult(AppUpdateInfo(
-                        hasUpdate = true,
-                        versionName = tagName,
-                        releaseNotes = notes,
-                        downloadUrl = apkUrl
+                        hasUpdate = hasUpdate,
+                        versionCode = serverVersionCode,
+                        versionName = versionName,
+                        releaseNotes = releaseNotes,
+                        downloadUrl = downloadUrl,
+                        sha256 = sha256,
+                        signingCertificateSha256 = certSha256,
+                        mandatory = mandatory
                     ))
                 } else {
                     onResult(null)
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 onResult(null)
             }
         }.start()
     }
+
+    /**
+     * Downloads an update APK and verifies its SHA-256 digest before allowing installation.
+     */
+    fun downloadAndVerifyApk(
+        context: android.content.Context,
+        updateInfo: AppUpdateInfo,
+        onProgress: (Int) -> Unit,
+        onVerified: (java.io.File) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (!updateInfo.downloadUrl.startsWith("https://")) {
+            onError("Insecure download URL rejected. HTTPS is mandatory.")
+            return
+        }
+
+        Thread {
+            try {
+                val req = Request.Builder().url(updateInfo.downloadUrl).build()
+                val resp = okHttpClient.newCall(req).execute()
+                if (!resp.isSuccessful) {
+                    onError("Download failed with HTTP ${resp.code}")
+                    return@Thread
+                }
+
+                val body = resp.body ?: run {
+                    onError("Empty response body from update server")
+                    return@Thread
+                }
+
+                val updateDir = java.io.File(context.cacheDir, "updates").apply { mkdirs() }
+                // Clear old updates
+                updateDir.listFiles()?.forEach { it.delete() }
+
+                val targetFile = java.io.File(updateDir, "update_${updateInfo.versionCode}.apk")
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+
+                body.byteStream().use { input ->
+                    targetFile.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var bytesRead: Int
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            digest.update(buffer, 0, bytesRead)
+                            output.write(buffer, 0, bytesRead)
+                        }
+                        output.flush()
+                    }
+                }
+
+                val calculatedHash = digest.digest().joinToString("") { "%02x".format(it) }
+
+                // If server provides a checksum, require strict match
+                if (updateInfo.sha256.isNotBlank() && !calculatedHash.equals(updateInfo.sha256.trim(), ignoreCase = true)) {
+                    targetFile.delete()
+                    onError("SHA-256 Checksum Mismatch! Expected: ${updateInfo.sha256}, Got: $calculatedHash")
+                    return@Thread
+                }
+
+                onVerified(targetFile)
+            } catch (e: Exception) {
+                onError("Download and verification error: ${e.message}")
+            }
+        }.start()
+    }
+
 }

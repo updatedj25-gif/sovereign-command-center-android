@@ -51,8 +51,6 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
 
         // Initialize configured baseUrl from persistent storage
-        ApiClient.baseUrl = SessionManager.getBaseUrl(this)
-
         setContent {
             SovereignTheme {
                 val isAuthenticated = rememberSaveable { mutableStateOf(false) }
@@ -102,7 +100,7 @@ class MainActivity : FragmentActivity() {
                             Button(
                                 onClick = {
                                     if (inputUrl.isNotBlank()) {
-                                        SessionManager.setBaseUrl(this@MainActivity, inputUrl)
+                                        /* immutable base URL */
                                         Toast.makeText(this@MainActivity, "Server set to: ${ApiClient.baseUrl}", Toast.LENGTH_SHORT).show()
                                     }
                                     showServerConfigDialog.value = false
@@ -205,7 +203,7 @@ class MainActivity : FragmentActivity() {
                         isLoading = isAuthenticating.value,
                         serverUrl = ApiClient.baseUrl,
                         onServerUrlChanged = { newUrl ->
-                            SessionManager.setBaseUrl(this@MainActivity, newUrl)
+                            /* immutable base URL */
                         },
                         onOpenSettings = { showServerConfigDialog.value = true },
                         onTriggerPasskey = {
@@ -396,7 +394,7 @@ fun PasskeyGateScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        var isEditingUrl by remember { mutableStateOf(serverUrl.contains("10.0.2.2")) }
+                        var isEditingUrl = false
                         var urlInput by remember(serverUrl) { mutableStateOf(serverUrl) }
 
                         if (serverUrl.contains("10.0.2.2")) {
