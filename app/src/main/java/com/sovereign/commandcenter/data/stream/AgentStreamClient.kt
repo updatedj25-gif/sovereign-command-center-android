@@ -129,7 +129,8 @@ open class AgentStreamClient {
             trySend(StreamEvent.Completed)
         } catch (e: Exception) {
             if (!call.isCanceled()) {
-                trySend(StreamEvent.Error("${e.javaClass.simpleName}: ${e.message ?: \"Stream interrupted\"}"))
+                val errDetail = e.javaClass.simpleName + ": " + (e.message ?: "Stream interrupted")
+                trySend(StreamEvent.Error(errDetail))
                 trySend(StreamEvent.Completed)
             }
         } finally {
