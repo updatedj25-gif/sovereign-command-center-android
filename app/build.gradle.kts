@@ -12,8 +12,8 @@ android {
         applicationId = "com.sovereign.commandcenter"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.3"
         buildConfigField("String", "API_BASE_URL", "\"https://sovereign-agent-api-production.trinityceo717.workers.dev\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

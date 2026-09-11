@@ -4,7 +4,9 @@ import com.sovereign.commandcenter.data.api.ApiClient
 import com.sovereign.commandcenter.data.session.SessionManager
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOn
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -127,7 +129,7 @@ open class AgentStreamClient {
             trySend(StreamEvent.Completed)
         } catch (e: Exception) {
             if (!call.isCanceled()) {
-                trySend(StreamEvent.Error(e.message ?: "Stream interrupted"))
+                trySend(StreamEvent.Error("${e.javaClass.simpleName}: ${e.message ?: \"Stream interrupted\"}"))
                 trySend(StreamEvent.Completed)
             }
         } finally {
@@ -137,7 +139,7 @@ open class AgentStreamClient {
         awaitClose {
             cancelCurrentStream()
         }
-    }
+    }.flowOn(Dispatchers.IO)
 
     private fun parseAndEmitEvent(jsonStr: String, emitter: (StreamEvent) -> Unit) {
         try {
