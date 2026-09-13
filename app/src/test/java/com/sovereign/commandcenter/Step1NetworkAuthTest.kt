@@ -174,4 +174,89 @@ class Step1NetworkAuthTest {
         // No crash, cleanly canceled
         assertNotNull(streamClient)
     }
+
+    @Test
+    fun testGetGovernedProfiles_parsesProfilesCorrectly() = runBlocking {
+        val mockJson = """
+        {
+            "success": true,
+            "count": 2,
+            "profiles": [
+                {
+                    "id": "trinity",
+                    "displayName": "Trinity Universe",
+                    "githubOwner": "updatedj25-gif",
+                    "githubRepo": "trinityuniverse",
+                    "cloudflareWorker": "gnosis-master",
+                    "cloudflareProfile": "trinity",
+                    "defaultBranch": "main",
+                    "allowedBranches": ["main"],
+                    "environments": ["production"],
+                    "approvalPolicy": "strict_biometric"
+                },
+                {
+                    "id": "sovereign",
+                    "displayName": "Sovereign Agent",
+                    "githubOwner": "updatedj25-gif",
+                    "githubRepo": "Sovereign_Agent",
+                    "cloudflareWorker": "sovereign-agent-production",
+                    "cloudflareProfile": "sovereign",
+                    "defaultBranch": "main",
+                    "allowedBranches": ["main"],
+                    "environments": ["production", "preview"],
+                    "approvalPolicy": "strict_biometric"
+                }
+            ]
+        }
+        """.trimIndent()
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody(mockJson))
+
+        val result = ApiClient.getGovernedProfiles()
+        assertTrue("Expected success", result.isSuccess)
+        val profiles = result.getOrNull()
+        assertNotNull(profiles)
+        assertEquals(2, profiles!!.size)
+        assertEquals("trinity", profiles[0].id)
+        assertEquals("gnosis-master", profiles[0].cloudflareWorker)
+        assertEquals("sovereign", profiles[1].id)
+        assertEquals("sovereign-agent-production", profiles[1].cloudflareWorker)
+    }
+
+    @Test
+    fun testGetSuccessMemories_parsesMemoryVaultCorrectly() = runBlocking {
+        val mockJson = """
+        {
+            "success": true,
+            "count": 1,
+            "memories": [
+                {
+                    "id": "mem_001",
+                    "scope": "trinity",
+                    "timestamp": "2026-09-12T00:00:00Z",
+                    "intent": "Deploy Trinity Worker",
+                    "diagnosis": "Wrangler tail nominal",
+                    "filesModified": ["wrangler.toml"],
+                    "successfulDiff": "+ name = 'gnosis-master'",
+                    "verifiedCommands": ["npx wrangler deploy"],
+                    "verificationProofSha": "abc12345",
+                    "confidenceScore": 1.0,
+                    "tags": ["cloudflare", "trinity"]
+                }
+            ]
+        }
+        """.trimIndent()
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody(mockJson))
+
+        val result = ApiClient.getSuccessMemories(scope = "trinity")
+        assertTrue("Expected success", result.isSuccess)
+        val memories = result.getOrNull()
+        assertNotNull(memories)
+        assertEquals(1, memories!!.size)
+        assertEquals("mem_001", memories[0].id)
+        assertEquals("trinity", memories[0].scope)
+        assertEquals("abc12345", memories[0].verificationProofSha)
+        assertEquals("Deploy Trinity Worker", memories[0].intent)
+    }
 }

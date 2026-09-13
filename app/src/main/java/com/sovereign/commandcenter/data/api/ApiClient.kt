@@ -90,6 +90,78 @@ data class ApprovalResult(
     val reason: String
 )
 
+
+data class GovernedProfile(
+    val id: String,
+    val displayName: String,
+    val githubOwner: String,
+    val githubRepo: String,
+    val cloudflareWorker: String,
+    val cloudflareProfile: String,
+    val defaultBranch: String,
+    val allowedBranches: List<String> = emptyList(),
+    val environments: List<String> = emptyList(),
+    val approvalPolicy: String = "strict_biometric"
+)
+
+data class SuccessMemoryRecord(
+    val id: String,
+    val scope: String,
+    val timestamp: String,
+    val intent: String,
+    val diagnosis: String,
+    val filesModified: List<String> = emptyList(),
+    val successfulDiff: String = "",
+    val verifiedCommands: List<String> = emptyList(),
+    val verificationProofSha: String = "",
+    val confidenceScore: Double = 1.0,
+    val tags: List<String> = emptyList()
+)
+
+
+data class ActivityEvidence(
+    val exitCode: Int,
+    val stdout: String,
+    val stderr: String,
+    val durationMs: Long,
+    val cwd: String,
+    val outputDigestSha256: String
+)
+
+data class ActivityRecord(
+    val id: String,
+    val sessionId: String,
+    val leaseId: String,
+    val kind: String,
+    val status: String,
+    val evidence: ActivityEvidence? = null,
+    val error: String? = null,
+    val completedWithNoOutput: Boolean = false
+) {
+    fun isEvidenceComplete(): Boolean {
+        if (status != "completed") return true
+        if (completedWithNoOutput) return true
+        val ev = evidence ?: return false
+        return ev.exitCode >= 0 && ev.durationMs >= 0 && ev.cwd.isNotBlank() && ev.outputDigestSha256.length == 64
+    }
+}
+
+data class BrokerLease(
+    val leaseId: String,
+    val ownerId: String,
+    val sessionId: String,
+    val profileId: String,
+    val branch: String,
+    val environment: String,
+    val sequenceNumber: Long,
+    val capabilities: List<String> = emptyList(),
+    val issuedAt: Long,
+    val expiresAt: Long,
+    val status: String
+) {
+    fun isActive(now: Long = System.currentTimeMillis()): Boolean = status == "active" && now <= expiresAt
+}
+
 object ApiClient {
     @Volatile
     var allowTestOverride: Boolean = false
@@ -472,6 +544,120 @@ object ApiClient {
                 onError("Download and verification error: ${e.message}")
             }
         }.start()
+    }
+
+
+    // --- 5. Dual-Account Governance Profiles ---
+    suspend fun getGovernedProfiles(): Result<List<GovernedProfile>> = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/registry/profiles")
+                .get()
+                .build()
+
+            okHttpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string() ?: ""
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("HTTP ${resp.code}: $body"))
+                val json = JSONObject(body)
+                val profilesArray = json.optJSONArray("profiles") ?: JSONArray()
+                val profiles = mutableListOf<GovernedProfile>()
+                for (i in 0 until profilesArray.length()) {
+                    val p = profilesArray.getJSONObject(i)
+                    val allowedBranches = mutableListOf<String>()
+                    val bArr = p.optJSONArray("allowedBranches")
+                    if (bArr != null) {
+                        for (j in 0 until bArr.length()) allowedBranches.add(bArr.getString(j))
+                    }
+                    val envs = mutableListOf<String>()
+                    val eArr = p.optJSONArray("environments")
+                    if (eArr != null) {
+                        for (j in 0 until eArr.length()) envs.add(eArr.getString(j))
+                    }
+                    profiles.add(
+                        GovernedProfile(
+                            id = p.getString("id"),
+                            displayName = p.optString("displayName", ""),
+                            githubOwner = p.optString("githubOwner", "updatedj25-gif"),
+                            githubRepo = p.optString("githubRepo", ""),
+                            cloudflareWorker = p.optString("cloudflareWorker", ""),
+                            cloudflareProfile = p.optString("cloudflareProfile", "sovereign"),
+                            defaultBranch = p.optString("defaultBranch", "main"),
+                            allowedBranches = allowedBranches,
+                            environments = envs,
+                            approvalPolicy = p.optString("approvalPolicy", "strict_biometric")
+                        )
+                    )
+                }
+                Result.success(profiles)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- 6. Success Memory Vault Queries ---
+    suspend fun getSuccessMemories(scope: String? = null, tag: String? = null): Result<List<SuccessMemoryRecord>> = withContext(Dispatchers.IO) {
+        try {
+            val url = buildString {
+                append("$baseUrl/api/command-center/memories")
+                val params = mutableListOf<String>()
+                if (!scope.isNullOrBlank()) params.add("scope=" + java.net.URLEncoder.encode(scope, "UTF-8"))
+                if (!tag.isNullOrBlank()) params.add("tag=" + java.net.URLEncoder.encode(tag, "UTF-8"))
+                if (params.isNotEmpty()) {
+                    append("?")
+                    append(params.joinToString("&"))
+                }
+            }
+
+            val req = Request.Builder()
+                .url(url)
+                .get()
+                .build()
+
+            okHttpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string() ?: ""
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("HTTP ${resp.code}: $body"))
+                val json = JSONObject(body)
+                val memArray = json.optJSONArray("memories") ?: JSONArray()
+                val memories = mutableListOf<SuccessMemoryRecord>()
+                for (i in 0 until memArray.length()) {
+                    val m = memArray.getJSONObject(i)
+                    val files = mutableListOf<String>()
+                    val fArr = m.optJSONArray("filesModified")
+                    if (fArr != null) {
+                        for (j in 0 until fArr.length()) files.add(fArr.getString(j))
+                    }
+                    val cmds = mutableListOf<String>()
+                    val cArr = m.optJSONArray("verifiedCommands")
+                    if (cArr != null) {
+                        for (j in 0 until cArr.length()) cmds.add(cArr.getString(j))
+                    }
+                    val tags = mutableListOf<String>()
+                    val tArr = m.optJSONArray("tags")
+                    if (tArr != null) {
+                        for (j in 0 until tArr.length()) tags.add(tArr.getString(j))
+                    }
+                    memories.add(
+                        SuccessMemoryRecord(
+                            id = m.getString("id"),
+                            scope = m.optString("scope", "global"),
+                            timestamp = m.optString("timestamp", ""),
+                            intent = m.optString("intent", ""),
+                            diagnosis = m.optString("diagnosis", ""),
+                            filesModified = files,
+                            successfulDiff = m.optString("successfulDiff", ""),
+                            verifiedCommands = cmds,
+                            verificationProofSha = m.optString("verificationProofSha", ""),
+                            confidenceScore = m.optDouble("confidenceScore", 1.0),
+                            tags = tags
+                        )
+                    )
+                }
+                Result.success(memories)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
 }
