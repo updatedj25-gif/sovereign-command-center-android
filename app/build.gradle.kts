@@ -14,7 +14,7 @@ android {
         targetSdk = 34
         versionCode = 4
         versionName = "1.0.3"
-        buildConfigField("String", "API_BASE_URL", "\"https://sovereign-agent-api-production.trinityceo717.workers.dev\"")
+        buildConfigField("String", "API_BASE_URL", "\"https://sovereign-agent-production.trinityceo717.workers.dev\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
