@@ -1,4 +1,5 @@
 package com.sovereign.commandcenter.ui
+import kotlinx.coroutines.flow.update
 
 import android.content.Context
 import androidx.lifecycle.ViewModel
@@ -258,5 +259,9 @@ class CommandCenterViewModel(
     override fun onCleared() {
         super.onCleared()
         cancelActiveStream()
+    }
+
+        fun startNewChat() {
+        _uiState.value = _uiState.value.copy(chatMessages = emptyList(), isStreaming = false)
     }
 }

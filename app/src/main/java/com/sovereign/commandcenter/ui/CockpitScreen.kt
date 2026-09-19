@@ -13,6 +13,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -37,6 +39,7 @@ fun CommandCenterCockpit(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var chatInput by rememberSaveable { mutableStateOf("") }
+    var activeCockpitTab by rememberSaveable { mutableStateOf("chat") }
     val now = remember { SimpleDateFormat("EEEE, MMMM d, yyyy | h:mm a", Locale.getDefault()).format(Date()) }
     val listState = rememberLazyListState()
 
@@ -52,6 +55,8 @@ fun CommandCenterCockpit(
     }
 
     val dynamicRepos: List<RepoHealth> = uiState.orgHealth?.repositories ?: emptyList()
+    val generalProjectPill = "General Project"
+
 
     Scaffold(
         topBar = {
@@ -84,6 +89,10 @@ fun CommandCenterCockpit(
                     }
                 },
                 actions = {
+                    
+                    IconButton(onClick = { viewModel.startNewChat() }) {
+                        Icon(Icons.Default.Add, contentDescription = "New Chat", tint = SovereignStone800)
+                    }
                     IconButton(onClick = { viewModel.refreshHealthAndMessages() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh Health", tint = SovereignStone800)
                     }
@@ -288,7 +297,20 @@ fun CommandCenterCockpit(
                             }
                         }
 
-                        items(dynamicRepos) { repo ->
+                        item {
+                        FilterChip(
+                            selected = selectedRepo == "General Project",
+                            onClick = { viewModel.selectRepository("General Project") },
+                            label = { Text("⚡ General Project", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = SovereignAmber,
+                                selectedLabelColor = SovereignCream
+                            ),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.padding(end = 6.dp)
+                        )
+                    }
+                    items(dynamicRepos) { repo ->
                             val isSelected = selectedRepo == repo.name
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
@@ -466,7 +488,20 @@ fun CommandCenterCockpit(
                                     }
                                 }
 
-                                items(dynamicRepos) { repo ->
+                                item {
+                        FilterChip(
+                            selected = selectedRepo == "General Project",
+                            onClick = { viewModel.selectRepository("General Project") },
+                            label = { Text("⚡ General Project", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = SovereignAmber,
+                                selectedLabelColor = SovereignCream
+                            ),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.padding(end = 6.dp)
+                        )
+                    }
+                    items(dynamicRepos) { repo ->
                                     val isSelected = selectedRepo == repo.name
                                     Surface(
                                         shape = RoundedCornerShape(16.dp),
