@@ -160,8 +160,8 @@ fun CommandCenterCockpit(
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        "SWITCH TARGET",
+                                        Text(
+                        "CHAT HISTORY",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = SovereignStone600,
@@ -169,45 +169,62 @@ fun CommandCenterCockpit(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    LazyColumn(modifier = Modifier.weight(1f)) {
-                        item {
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clickable {
-                                        viewModel.selectRepository(null)
-                                        coroutineScope.launch { drawerState.close() }
-                                    },
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (selectedRepo == null) SovereignAmber else SovereignCream
-                            ) {
-                                Text(
-                                    "🌐 Trinity Universe (Global)",
-                                    fontSize = 13.sp,
-                                    modifier = Modifier.padding(10.dp),
-                                    fontWeight = if (selectedRepo == null) FontWeight.Bold else FontWeight.Normal
-                                )
-                            }
+                    if (uiState.chatHistory.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                """""No prior sessions yet.
+Start chatting to record history.""""",
+                                fontSize = 12.sp,
+                                color = SovereignStone600,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
                         }
-                        items(dynamicRepos) { repo ->
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clickable {
-                                        viewModel.selectRepository(repo.name)
-                                        coroutineScope.launch { drawerState.close() }
-                                    },
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (selectedRepo == repo.name) SovereignAmber else SovereignCream
-                            ) {
-                                Text(
-                                    "📁 ${repo.name}",
-                                    fontSize = 13.sp,
-                                    modifier = Modifier.padding(10.dp),
-                                    fontWeight = if (selectedRepo == repo.name) FontWeight.Bold else FontWeight.Normal
-                                )
+                    } else {
+                        LazyColumn(modifier = Modifier.weight(1f)) {
+                            items(uiState.chatHistory) { item ->
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clickable {
+                                            viewModel.restoreSession(item)
+                                            coroutineScope.launch { drawerState.close() }
+                                        },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = SovereignCream,
+                                    border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.25f))
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text(
+                                            text = item.title,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 13.sp,
+                                            color = SovereignStone900,
+                                            maxLines = 1
+                                        )
+                                        Spacer(modifier = Modifier.height(3.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = item.repositoryContext ?: "Global Context",
+                                                fontSize = 11.sp,
+                                                color = SovereignAmberDark
+                                            )
+                                            Text(
+                                                text = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(item.timestamp)),
+                                                fontSize = 10.sp,
+                                                color = SovereignStone600
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -246,18 +263,22 @@ fun CommandCenterCockpit(
                                 Text("👑", fontSize = 18.sp)
                             }
                             Spacer(modifier = Modifier.width(10.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f, fill = false)) {
                                 Text(
                                     "SOVEREIGN",
-                                    style = MaterialTheme.typography.titleMedium,
+                                    fontSize = 15.sp,
                                     fontWeight = FontWeight.Black,
-                                    letterSpacing = 1.2.sp,
-                                    color = SovereignAmberDark
+                                    letterSpacing = 0.8.sp,
+                                    color = SovereignAmberDark,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                                 Text(
-                                    if (selectedRepo == null) "Trinity Universe • Global Cockpit" else "$selectedRepo Cockpit",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = SovereignStone600
+                                    if (selectedRepo == null) "Trinity Universe • Global" else "$selectedRepo",
+                                    fontSize = 11.sp,
+                                    color = SovereignStone600,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -284,7 +305,8 @@ fun CommandCenterCockpit(
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = SovereignCreamDarker)
                 )
 
-                // SECONDARY NAVIGATION BAR (STREAMLINED: FILES & PREVIEW)
+                // SECONDARY NAVIGATION BAR: [CHAT] | [FILES] | [PREVIEW]
+                val isChatActive = !showFilesSheet && !showPreviewSheet
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -292,22 +314,48 @@ fun CommandCenterCockpit(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // [💬 Chat]
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable {
+                                showFilesSheet = false
+                                showPreviewSheet = false
+                            },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isChatActive) SovereignAmber else SovereignCream,
+                        border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.4f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.ChatBubble, contentDescription = "Chat", tint = SovereignAmberDark, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Chat", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SovereignStone900)
+                        }
+                    }
+
                     // [📁 Files]
                     Surface(
                         modifier = Modifier
                             .weight(1f)
-                            .clickable { showFilesSheet = true },
+                            .clickable {
+                                showPreviewSheet = false
+                                showFilesSheet = true
+                            },
                         shape = RoundedCornerShape(12.dp),
                         color = if (showFilesSheet) SovereignAmber else SovereignCream,
                         border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.4f))
                     ) {
                         Row(
-                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 10.dp),
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            Icon(Icons.Default.Folder, contentDescription = "Files", tint = SovereignAmberDark, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(Icons.Default.Folder, contentDescription = "Files", tint = SovereignAmberDark, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text("Files", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SovereignStone900)
                         }
                     }
@@ -316,18 +364,21 @@ fun CommandCenterCockpit(
                     Surface(
                         modifier = Modifier
                             .weight(1f)
-                            .clickable { showPreviewSheet = true },
+                            .clickable {
+                                showFilesSheet = false
+                                showPreviewSheet = true
+                            },
                         shape = RoundedCornerShape(12.dp),
                         color = if (showPreviewSheet) SovereignAmber else SovereignCream,
                         border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.4f))
                     ) {
                         Row(
-                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 10.dp),
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            Icon(Icons.Default.Language, contentDescription = "Preview", tint = SovereignAmberDark, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(Icons.Default.Language, contentDescription = "Preview", tint = SovereignAmberDark, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text("Preview", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SovereignStone900)
                         }
                     }

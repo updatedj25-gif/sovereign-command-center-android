@@ -33,6 +33,15 @@ data class PendingApprovalData(
     val repository: String?
 )
 
+
+data class ChatSessionHistoryItem(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val title: String,
+    val timestamp: Long = System.currentTimeMillis(),
+    val repositoryContext: String?,
+    val messages: List<ChatMessage>
+)
+
 data class CommandCenterUiState(
     val isAuthenticated: Boolean = false,
     val isAuthenticating: Boolean = false,
@@ -49,7 +58,8 @@ data class CommandCenterUiState(
     val errorMessage: String? = null,
     val repoTree: List<RepoTreeEntry> = emptyList(),
     val isTreeLoading: Boolean = false,
-    val treeError: String? = null
+    val treeError: String? = null,
+    val chatHistory: List<ChatSessionHistoryItem> = emptyList()
 )
 
 class CommandCenterViewModel(
@@ -267,7 +277,33 @@ class CommandCenterViewModel(
     }
 
         fun startNewChat() {
-        _uiState.value = _uiState.value.copy(chatMessages = emptyList(), isStreaming = false)
+        val currentMsgs = _uiState.value.chatMessages
+        val updatedHistory = if (currentMsgs.isNotEmpty()) {
+            val firstUserPrompt = currentMsgs.firstOrNull { it.role == "user" }?.content?.take(35) ?: "CEO Session"
+            val item = ChatSessionHistoryItem(
+                title = firstUserPrompt,
+                repositoryContext = _uiState.value.selectedRepository,
+                messages = currentMsgs
+            )
+            listOf(item) + _uiState.value.chatHistory.take(19)
+        } else {
+            _uiState.value.chatHistory
+        }
+        _uiState.value = _uiState.value.copy(
+            chatMessages = emptyList(),
+            isStreaming = false,
+            chatHistory = updatedHistory
+        )
+    }
+
+    fun restoreSession(historyItem: ChatSessionHistoryItem) {
+        cancelActiveStream()
+        _uiState.value = _uiState.value.copy(
+            chatMessages = historyItem.messages,
+            selectedRepository = historyItem.repositoryContext,
+            isStreaming = false
+        )
+        loadRepoTree(historyItem.repositoryContext)
     }
 
     fun loadRepoTree(rawRepo: String?, branch: String = _uiState.value.selectedBranch) {
