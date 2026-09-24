@@ -15,8 +15,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
+import com.sovereign.commandcenter.data.api.RepoTreeEntry
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,8 +48,10 @@ fun CommandCenterCockpit(
     var chatInput by rememberSaveable { mutableStateOf("") }
     val now = remember { SimpleDateFormat("EEEE, MMMM d, yyyy | h:mm a", Locale.getDefault()).format(Date()) }
     val listState = rememberLazyListState()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val coroutineScope = rememberCoroutineScope()
 
-    // 3-Top Menu Sheet States
+    // Secondary Menu Sheet States
     var showSessionsSheet by remember { mutableStateOf(false) }
     var showFilesSheet by remember { mutableStateOf(false) }
     var showPreviewSheet by remember { mutableStateOf(false) }
@@ -67,10 +72,169 @@ fun CommandCenterCockpit(
 
     val dynamicRepos: List<RepoHealth> = uiState.orgHealth?.repositories ?: emptyList()
 
-    Scaffold(
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = true,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerContainerColor = SovereignCreamDarker,
+                modifier = Modifier
+                    .width(320.dp)
+                    .statusBarsPadding()
+                    .padding(top = 10.dp, bottom = 16.dp, start = 8.dp, end = 8.dp),
+                drawerShape = RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(20.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("👑", fontSize = 20.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "CEO SESSIONS",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = SovereignAmberDark
+                            )
+                        }
+                        IconButton(onClick = { coroutineScope.launch { drawerState.close() } }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close Drawer", tint = SovereignStone800)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Button(
+                        onClick = {
+                            viewModel.startNewChat()
+                            coroutineScope.launch { drawerState.close() }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = SovereignAmber),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "New Session", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Start New Session", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+                    HorizontalDivider(color = SovereignAmber.copy(alpha = 0.25f), thickness = 1.dp)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        "ACTIVE TARGET",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = SovereignStone600,
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Surface(
+                        color = SovereignCream,
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = selectedRepo ?: "Trinity Universe (Global)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = SovereignAmberDark
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (selectedRepo == null) "All organization repositories connected" else "Context constrained to $selectedRepo",
+                                fontSize = 12.sp,
+                                color = SovereignStone800
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "SWITCH TARGET",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = SovereignStone600,
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        item {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clickable {
+                                        viewModel.selectRepository(null)
+                                        coroutineScope.launch { drawerState.close() }
+                                    },
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (selectedRepo == null) SovereignAmber else SovereignCream
+                            ) {
+                                Text(
+                                    "🌐 Trinity Universe (Global)",
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.padding(10.dp),
+                                    fontWeight = if (selectedRepo == null) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                        items(dynamicRepos) { repo ->
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clickable {
+                                        viewModel.selectRepository(repo.name)
+                                        coroutineScope.launch { drawerState.close() }
+                                    },
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (selectedRepo == repo.name) SovereignAmber else SovereignCream
+                            ) {
+                                Text(
+                                    "📁 ${repo.name}",
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.padding(10.dp),
+                                    fontWeight = if (selectedRepo == repo.name) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "Total Cockpit Messages: ${uiState.chatMessages.size}",
+                        fontSize = 12.sp,
+                        color = SovereignStone600
+                    )
+                }
+            }
+        }
+    ) {
+        Scaffold(
         topBar = {
             Column(modifier = Modifier.background(SovereignCreamDarker)) {
                 TopAppBar(
+                    navigationIcon = {
+                        IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
+                            Icon(
+                                Icons.Default.Menu,
+                                contentDescription = "Open Navigation Drawer",
+                                tint = SovereignStone800
+                            )
+                        }
+                    },
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
@@ -120,7 +284,7 @@ fun CommandCenterCockpit(
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = SovereignCreamDarker)
                 )
 
-                // 3-TOP MENU NAVIGATION BAR
+                // SECONDARY NAVIGATION BAR (STREAMLINED: FILES & PREVIEW)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -128,26 +292,6 @@ fun CommandCenterCockpit(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // [☰ Sessions]
-                    Surface(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { showSessionsSheet = true },
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (showSessionsSheet) SovereignAmber else SovereignCream,
-                        border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.4f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(Icons.Default.Menu, contentDescription = "Sessions", tint = SovereignAmberDark, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Sessions", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SovereignStone900)
-                        }
-                    }
-
                     // [📁 Files]
                     Surface(
                         modifier = Modifier
@@ -318,7 +462,7 @@ fun CommandCenterCockpit(
                                 modifier = Modifier.size(38.dp),
                                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = SovereignAmber)
                             ) {
-                                Icon(Icons.Default.Send, contentDescription = "Send", tint = SovereignCream)
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = SovereignCream)
                             }
                         }
                     }
@@ -625,11 +769,55 @@ fun CommandCenterCockpit(
                     border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.2f))
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text("📁 src/", fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = SovereignStone800)
-                        Text("  📄 App.tsx", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = SovereignStone800)
-                        Text("  📄 main.tsx", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = SovereignStone800)
-                        Text("📁 artifacts/", fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = SovereignStone800)
-                        Text("  📄 package.json", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = SovereignStone800)
+                        LaunchedEffect(selectedRepo) {
+                            if (selectedRepo != null) {
+                                viewModel.loadRepoTree(selectedRepo)
+                            }
+                        }
+                        if (selectedRepo == null) {
+                            Text(
+                                "Select a specific repository to browse its authorized file tree.",
+                                fontSize = 12.sp,
+                                color = SovereignStone600
+                            )
+                        } else if (uiState.isTreeLoading) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = SovereignAmberDark)
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text("Loading repository tree...", fontSize = 12.sp, color = SovereignStone800)
+                            }
+                        } else if (uiState.treeError != null) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text("Failed to load tree: ${uiState.treeError}", fontSize = 12.sp, color = Color(0xFFDC2626))
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(
+                                    onClick = { viewModel.loadRepoTree(selectedRepo) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = SovereignAmber),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text("Retry", fontSize = 12.sp)
+                                }
+                            }
+                        } else if (uiState.repoTree.isEmpty()) {
+                            Text("No files found or empty repository.", fontSize = 12.sp, color = SovereignStone600)
+                        } else {
+                            LazyColumn(modifier = Modifier.heightIn(max = 350.dp)) {
+                                items(uiState.repoTree) { item ->
+                                    val icon = if (item.type == "tree") "📁 " else "📄 "
+                                    Text(
+                                        text = "$icon${item.path}",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 12.sp,
+                                        color = SovereignStone900,
+                                        modifier = Modifier.padding(vertical = 3.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
@@ -671,6 +859,7 @@ fun CommandCenterCockpit(
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
+    }
     }
 }
 

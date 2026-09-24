@@ -12,6 +12,18 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 // Data models
+
+data class NotificationItem(
+    val id: String,
+    val timestamp: String,
+    val severity: String,
+    val scope: String,
+    val title: String,
+    val summary: String,
+    val details: List<String> = emptyList(),
+    val acknowledged: Boolean = false
+)
+
 data class AppUpdateInfo(
     val hasUpdate: Boolean,
     val versionCode: Int = 0,
@@ -51,6 +63,14 @@ data class StepUpResult(
     val action: String,
     val authorized: Boolean,
     val authorizedAt: String
+)
+
+data class RepoTreeEntry(
+    val path: String,
+    val mode: String = "",
+    val type: String = "blob",
+    val size: Long = 0L,
+    val sha: String = ""
 )
 
 data class RepoHealth(
@@ -654,6 +674,110 @@ object ApiClient {
                     )
                 }
                 Result.success(memories)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+
+    suspend fun getNotifications(): List<NotificationItem> = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/notifications")
+                .get()
+                .build()
+            val resp = okHttpClient.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful || body.isEmpty()) return@withContext emptyList()
+            val json = JSONObject(body)
+            val arr = json.optJSONArray("notifications") ?: return@withContext emptyList()
+            val list = mutableListOf<NotificationItem>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val detailsArr = obj.optJSONArray("details")
+                val details = mutableListOf<String>()
+                if (detailsArr != null) {
+                    for (j in 0 until detailsArr.length()) {
+                        details.add(detailsArr.getString(j))
+                    }
+                }
+                list.add(
+                    NotificationItem(
+                        id = obj.optString("id"),
+                        timestamp = obj.optString("timestamp"),
+                        severity = obj.optString("severity", "INFO"),
+                        scope = obj.optString("scope", "SYSTEM"),
+                        title = obj.optString("title"),
+                        summary = obj.optString("summary"),
+                        details = details,
+                        acknowledged = obj.optBoolean("acknowledged", false)
+                    )
+                )
+            }
+            list
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun triggerSecurityAudit(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/notifications/trigger-audit")
+                .post("{}".toRequestBody("application/json".toMediaType()))
+                .build()
+            val resp = okHttpClient.newCall(req).execute()
+            resp.isSuccessful
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun acknowledgeNotification(id: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val bodyObj = JSONObject().put("actor", "CEO")
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/notifications/$id/acknowledge")
+                .post(bodyObj.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+            val resp = okHttpClient.newCall(req).execute()
+            resp.isSuccessful
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+
+    suspend fun fetchRepoTree(
+        owner: String,
+        repo: String,
+        branch: String = "main"
+    ): Result<List<RepoTreeEntry>> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$baseUrl/api/github/repos/$owner/$repo/tree?ref=$branch"
+            val req = Request.Builder().url(url).get().build()
+            okHttpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string() ?: ""
+                if (!resp.isSuccessful) {
+                    return@withContext Result.failure(IOException("HTTP ${resp.code}: $body"))
+                }
+                val json = JSONObject(body)
+                val treeArr = json.optJSONArray("tree") ?: JSONArray()
+                val entries = mutableListOf<RepoTreeEntry>()
+                for (i in 0 until treeArr.length()) {
+                    val obj = treeArr.getJSONObject(i)
+                    entries.add(
+                        RepoTreeEntry(
+                            path = obj.optString("path"),
+                            mode = obj.optString("mode"),
+                            type = obj.optString("type", "blob"),
+                            size = obj.optLong("size", 0L),
+                            sha = obj.optString("sha")
+                        )
+                    )
+                }
+                Result.success(entries)
             }
         } catch (e: Exception) {
             Result.failure(e)

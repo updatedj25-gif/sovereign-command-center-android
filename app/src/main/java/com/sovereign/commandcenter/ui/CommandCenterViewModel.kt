@@ -11,6 +11,7 @@ import com.sovereign.commandcenter.data.stream.AgentStreamClient
 import com.sovereign.commandcenter.data.stream.StreamEvent
 import com.sovereign.commandcenter.data.stream.StreamRequestContext
 import kotlinx.coroutines.Job
+import com.sovereign.commandcenter.data.api.RepoTreeEntry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,7 +46,10 @@ data class CommandCenterUiState(
     val pendingApproval: PendingApprovalData? = null,
     val orgHealth: OrgHealth? = null,
     val ceoMessages: List<CeoMessage> = emptyList(),
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val repoTree: List<RepoTreeEntry> = emptyList(),
+    val isTreeLoading: Boolean = false,
+    val treeError: String? = null
 )
 
 class CommandCenterViewModel(
@@ -121,6 +125,7 @@ class CommandCenterViewModel(
             contextVersion = newVersion,
             isStreaming = false
         )
+        loadRepoTree(repo)
     }
 
     fun sendMessage(prompt: String) {
@@ -264,4 +269,37 @@ class CommandCenterViewModel(
         fun startNewChat() {
         _uiState.value = _uiState.value.copy(chatMessages = emptyList(), isStreaming = false)
     }
+
+    fun loadRepoTree(rawRepo: String?, branch: String = _uiState.value.selectedBranch) {
+        if (rawRepo.isNullOrBlank()) {
+            _uiState.value = _uiState.value.copy(
+                repoTree = emptyList(),
+                isTreeLoading = false,
+                treeError = null
+            )
+            return
+        }
+        val parts = rawRepo.split("/")
+        val owner = if (parts.size >= 2) parts[0] else (_uiState.value.orgHealth?.organization ?: "sovereign")
+        val repo = if (parts.size >= 2) parts[1] else parts[0]
+
+        _uiState.value = _uiState.value.copy(isTreeLoading = true, treeError = null)
+        viewModelScope.launch {
+            val result = ApiClient.fetchRepoTree(owner, repo, branch)
+            result.onSuccess { entries ->
+                _uiState.value = _uiState.value.copy(
+                    repoTree = entries,
+                    isTreeLoading = false,
+                    treeError = null
+                )
+            }.onFailure { err ->
+                _uiState.value = _uiState.value.copy(
+                    repoTree = emptyList(),
+                    isTreeLoading = false,
+                    treeError = err.message ?: "Failed to load repository tree"
+                )
+            }
+        }
+    }
+
 }
