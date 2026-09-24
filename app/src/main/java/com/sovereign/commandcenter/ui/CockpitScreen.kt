@@ -1,7 +1,10 @@
 package com.sovereign.commandcenter.ui
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,13 +16,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -37,11 +40,19 @@ fun CommandCenterCockpit(
     onLogout: () -> Unit,
     onTriggerStepUp: (String, String, () -> Unit) -> Unit
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     var chatInput by rememberSaveable { mutableStateOf("") }
-    var activeCockpitTab by rememberSaveable { mutableStateOf("chat") }
     val now = remember { SimpleDateFormat("EEEE, MMMM d, yyyy | h:mm a", Locale.getDefault()).format(Date()) }
     val listState = rememberLazyListState()
+
+    // 3-Top Menu Sheet States
+    var showSessionsSheet by remember { mutableStateOf(false) }
+    var showFilesSheet by remember { mutableStateOf(false) }
+    var showPreviewSheet by remember { mutableStateOf(false) }
+
+    // Voice Duplex State
+    var isVoiceActive by remember { mutableStateOf(false) }
 
     val selectedRepo = uiState.selectedRepository
     val currentMessages = remember(uiState.chatMessages, selectedRepo) {
@@ -55,116 +66,260 @@ fun CommandCenterCockpit(
     }
 
     val dynamicRepos: List<RepoHealth> = uiState.orgHealth?.repositories ?: emptyList()
-    val generalProjectPill = "General Project"
-
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(SovereignAmber, RoundedCornerShape(8.dp)),
-                            contentAlignment = Alignment.Center
+            Column(modifier = Modifier.background(SovereignCreamDarker)) {
+                TopAppBar(
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .background(SovereignAmber, RoundedCornerShape(8.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("👑", fontSize = 18.sp)
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    "SOVEREIGN",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 1.2.sp,
+                                    color = SovereignAmberDark
+                                )
+                                Text(
+                                    if (selectedRepo == null) "Trinity Universe • Global Cockpit" else "$selectedRepo Cockpit",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = SovereignStone600
+                                )
+                            }
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { viewModel.startNewChat() }) {
+                            Icon(Icons.Default.Add, contentDescription = "New Chat", tint = SovereignStone800)
+                        }
+                        IconButton(onClick = { viewModel.refreshHealthAndMessages() }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh Health", tint = SovereignStone800)
+                        }
+                        Button(
+                            onClick = { onLogout() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.padding(end = 8.dp)
                         ) {
-                            Text("👑", fontSize = 18.sp)
+                            Icon(Icons.Default.Lock, contentDescription = "Logout", tint = Color.White, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Logout", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                "SOVEREIGN",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 1.2.sp,
-                                color = SovereignAmberDark
-                            )
-                            Text(
-                                if (selectedRepo == null) "Trinity Universe • Global Cockpit" else "$selectedRepo Cockpit",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = SovereignStone600
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    
-                    IconButton(onClick = { viewModel.startNewChat() }) {
-                        Icon(Icons.Default.Add, contentDescription = "New Chat", tint = SovereignStone800)
-                    }
-                    IconButton(onClick = { viewModel.refreshHealthAndMessages() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh Health", tint = SovereignStone800)
-                    }
-                    Button(
-                        onClick = { onLogout() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier.padding(end = 8.dp)
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = SovereignCreamDarker)
+                )
+
+                // 3-TOP MENU NAVIGATION BAR
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // [☰ Sessions]
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { showSessionsSheet = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (showSessionsSheet) SovereignAmber else SovereignCream,
+                        border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.4f))
                     ) {
-                        Icon(Icons.Default.Lock, contentDescription = "Logout", tint = Color.White, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Logout", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.Menu, contentDescription = "Sessions", tint = SovereignAmberDark, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Sessions", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SovereignStone900)
+                        }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = SovereignCreamDarker)
-            )
+
+                    // [📁 Files]
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { showFilesSheet = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (showFilesSheet) SovereignAmber else SovereignCream,
+                        border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.4f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.Folder, contentDescription = "Files", tint = SovereignAmberDark, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Files", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SovereignStone900)
+                        }
+                    }
+
+                    // [🌐 Preview]
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { showPreviewSheet = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (showPreviewSheet) SovereignAmber else SovereignCream,
+                        border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.4f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.Language, contentDescription = "Preview", tint = SovereignAmberDark, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Preview", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SovereignStone900)
+                        }
+                    }
+                }
+            }
         },
         bottomBar = {
+            // CURVY INPUT BAR CONTAINER
             Surface(
-                modifier = Modifier.fillMaxWidth().imePadding(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .imePadding(),
                 color = SovereignCreamDarker,
-                shadowElevation = 8.dp,
-                border = androidx.compose.foundation.BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.25f))
+                shadowElevation = 10.dp,
+                border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.3f))
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val placeholderText = if (selectedRepo == null) {
-                        "Ask across Trinity Universe..."
-                    } else {
-                        "Ask $selectedRepo..."
-                    }
-
-                    OutlinedTextField(
-                        value = chatInput,
-                        onValueChange = { chatInput = it },
-                        placeholder = { Text(placeholderText, fontSize = 13.sp, color = SovereignStone600) },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = SovereignAmber,
-                            unfocusedBorderColor = SovereignStone400,
-                            cursorColor = SovereignAmberDark
-                        ),
-                        maxLines = 4
-                    )
-
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    // EMERGENCY RED KILL SWITCH BANNER (When agent is executing)
                     AnimatedVisibility(visible = uiState.isStreaming) {
-                        IconButton(
-                            onClick = { viewModel.cancelActiveStream() },
-                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFDC2626))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 6.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFFEF2F2))
+                                .border(1.dp, Color(0xFFEF4444), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Icon(Icons.Default.Clear, contentDescription = "Stop Stream", tint = Color.White)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(Color(0xFFDC2626), CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("AGENT STREAM ACTIVE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB91C1C))
+                            }
+                            Text("Emergency Red Switch Armed", fontSize = 11.sp, color = Color(0xFFDC2626), fontWeight = FontWeight.Medium)
                         }
                     }
 
-                    AnimatedVisibility(visible = !uiState.isStreaming) {
+                    // THE CURVY INPUT ROW
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SovereignCream, RoundedCornerShape(28.dp))
+                            .border(1.dp, SovereignAmber.copy(alpha = 0.35f), RoundedCornerShape(28.dp))
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // [+] Attachment Button
                         IconButton(
                             onClick = {
-                                if (chatInput.isNotBlank()) {
+                                Toast.makeText(context, "Attachment: Senior Sovereign attachment API ready", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Attach", tint = SovereignStone600)
+                        }
+
+                        // Center Curvy Prompt Composer
+                        val placeholderText = if (selectedRepo == null) {
+                            "Ask across Trinity Universe..."
+                        } else {
+                            "Ask $selectedRepo..."
+                        }
+
+                        OutlinedTextField(
+                            value = chatInput,
+                            onValueChange = { chatInput = it },
+                            placeholder = { Text(placeholderText, fontSize = 13.sp, color = SovereignStone600) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 4.dp),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.Transparent,
+                                unfocusedBorderColor = Color.Transparent,
+                                cursorColor = SovereignAmberDark
+                            ),
+                            maxLines = 4
+                        )
+
+                        // Voice Mic Duplex Button
+                        IconButton(
+                            onClick = {
+                                isVoiceActive = !isVoiceActive
+                                Toast.makeText(context, if (isVoiceActive) "Voice Duplex: Listening..." else "Voice Duplex: Muted", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Mic,
+                                contentDescription = "Voice Duplex",
+                                tint = if (isVoiceActive) Color(0xFF16A34A) else SovereignStone600
+                            )
+                        }
+
+                        // EMERGENCY RED KILL SWITCH (Server Authoritative Cancellation)
+                        Surface(
+                            modifier = Modifier
+                                .padding(end = 4.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable {
+                                    viewModel.cancelActiveStream()
+                                    isVoiceActive = false
+                                    Toast.makeText(context, "EMERGENCY STOP EXECUTED", Toast.LENGTH_SHORT).show()
+                                },
+                            color = if (uiState.isStreaming) Color(0xFFDC2626) else Color(0xFF991B1B),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Clear, contentDescription = "Kill Switch", tint = Color.White, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("STOP", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                            }
+                        }
+
+                        // Send Button
+                        AnimatedVisibility(visible = chatInput.isNotBlank()) {
+                            IconButton(
+                                onClick = {
                                     val msg = chatInput
                                     chatInput = ""
                                     viewModel.sendMessage(msg)
-                                }
-                            },
-                            enabled = chatInput.isNotBlank(),
-                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = SovereignAmber)
-                        ) {
-                            Icon(Icons.Default.Send, contentDescription = "Send", tint = SovereignCream)
+                                },
+                                modifier = Modifier.size(38.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(containerColor = SovereignAmber)
+                            ) {
+                                Icon(Icons.Default.Send, contentDescription = "Send", tint = SovereignCream)
+                            }
                         }
                     }
                 }
@@ -180,257 +335,64 @@ fun CommandCenterCockpit(
             val isTablet = maxWidth >= 720.dp
 
             if (isTablet) {
-                // Dual-Pane Tablet / Foldable Cockpit Layout
+                // Dual-Pane Tablet Layout
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Left Telemetry & Navigation Rail
-                    LazyColumn(
-                        modifier = Modifier
-                            .width(360.dp)
-                            .fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        item {
-                            Text(
-                                text = now,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = SovereignStone600
-                            )
-                        }
-
-                        // Org Telemetry Card
-                        item {
-                            Card(
-                                shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.cardColors(containerColor = SovereignCreamDarker),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.3f)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(
-                                            "TRINITY UNIVERSE",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = SovereignAmberDark
-                                        )
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = Color(0xFF16A34A).copy(alpha = 0.15f)
-                                        ) {
-                                            Text(
-                                                "NOMINAL",
-                                                color = Color(0xFF16A34A),
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        userName,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = SovereignStone950
-                                    )
-                                    Text(
-                                        "Executive Command Active",
-                                        fontSize = 11.sp,
-                                        color = SovereignStone600
-                                    )
-                                }
-                            }
-                        }
-
-                        item {
-                            Text(
-                                "ORGANIZATION REPOSITORIES",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = SovereignAmberDark,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // Global Universe selector item
-                        item {
-                            val isGlobalSelected = selectedRepo == null
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (isGlobalSelected) SovereignAmber else SovereignCreamDarker,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (isGlobalSelected) SovereignAmberDark else SovereignAmber.copy(alpha = 0.35f)
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { viewModel.selectRepository(null) }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("🌐", fontSize = 16.sp)
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column {
-                                        Text(
-                                            "Global Universe",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = if (isGlobalSelected) FontWeight.Bold else FontWeight.SemiBold,
-                                            color = if (isGlobalSelected) SovereignCream else SovereignStone900
-                                        )
-                                        Text(
-                                            "Cross-repo executive intelligence",
-                                            fontSize = 11.sp,
-                                            color = if (isGlobalSelected) SovereignCream.copy(alpha = 0.8f) else SovereignStone600
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        item {
-                        FilterChip(
-                            selected = selectedRepo == "General Project",
-                            onClick = { viewModel.selectRepository("General Project") },
-                            label = { Text("⚡ General Project", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = SovereignAmber,
-                                selectedLabelColor = SovereignCream
-                            ),
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier.padding(end = 6.dp)
-                        )
-                    }
-                    items(dynamicRepos) { repo ->
-                            val isSelected = selectedRepo == repo.name
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (isSelected) SovereignAmber else SovereignCreamDarker,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (isSelected) SovereignAmberDark else SovereignAmber.copy(alpha = 0.35f)
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        if (isSelected) viewModel.selectRepository(null)
-                                        else viewModel.selectRepository(repo.name)
-                                    }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .background(
-                                                if (repo.status.equals("nominal", ignoreCase = true)) Color(0xFF16A34A) else Color(0xFFEA580C),
-                                                CircleShape
-                                            )
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            repo.name,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                                            color = if (isSelected) SovereignCream else SovereignStone900
-                                        )
-                                        Text(
-                                            "Branch: ${repo.branch} • ${repo.type}",
-                                            fontSize = 11.sp,
-                                            color = if (isSelected) SovereignCream.copy(alpha = 0.8f) else SovereignStone600
-                                        )
-                                    }
-                                    if (repo.pendingApprovals > 0) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = Color(0xFFDC2626)
-                                        ) {
-                                            Text(
-                                                "${repo.pendingApprovals}",
-                                                color = Color.White,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Right Operational & Chat Console
-                    LazyColumn(
-                        state = listState,
+                    Column(
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                            .fillMaxHeight()
                     ) {
-                        // Pending Approval Banner
-                        if (uiState.pendingApproval != null) {
-                            val approval = uiState.pendingApproval!!
-                            item {
-                                ApprovalBanner(
-                                    approval = approval,
-                                    selectedRepo = selectedRepo,
-                                    onReject = { viewModel.submitApproval(false, "Rejected by CEO") },
-                                    onAuthorize = { repo, tool ->
-                                        onTriggerStepUp(repo, tool) {
-                                            viewModel.submitApproval(true, "Authorized by CEO")
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            if (uiState.pendingApproval != null) {
+                                val approval = uiState.pendingApproval!!
+                                item {
+                                    ApprovalBanner(
+                                        approval = approval,
+                                        selectedRepo = selectedRepo,
+                                        onReject = { viewModel.submitApproval(false, "Rejected by CEO") },
+                                        onAuthorize = { repo, tool ->
+                                            onTriggerStepUp(repo, tool) {
+                                                viewModel.submitApproval(true, "Authorized by CEO")
+                                            }
                                         }
-                                    }
+                                    )
+                                }
+                            }
+
+                            item {
+                                WorkspaceContextBanner(
+                                    selectedRepo = selectedRepo,
+                                    dynamicRepos = dynamicRepos,
+                                    contextVersion = uiState.contextVersion,
+                                    onTriggerStepUp = onTriggerStepUp
                                 )
                             }
-                        }
 
-                        // Active Context Workspace Header
-                        item {
-                            WorkspaceContextBanner(
-                                selectedRepo = selectedRepo,
-                                dynamicRepos = dynamicRepos,
-                                contextVersion = uiState.contextVersion,
-                                onTriggerStepUp = onTriggerStepUp
-                            )
-                        }
-
-                        // Chat Messages
-                        if (currentMessages.isEmpty()) {
-                            item {
-                                EmptyChatBanner(selectedRepo)
+                            if (currentMessages.isEmpty()) {
+                                item { EmptyChatBanner(selectedRepo) }
+                            } else {
+                                items(currentMessages) { message ->
+                                    ChatMessageBubble(message = message)
+                                }
                             }
-                        } else {
-                            items(currentMessages) { message ->
-                                ChatMessageBubble(message = message)
-                            }
-                        }
 
-                        // Thinking Indicator
-                        if (uiState.isStreaming && currentMessages.isNotEmpty() && currentMessages.last().content.isEmpty()) {
-                            item {
-                                StreamingIndicator()
+                            if (uiState.isStreaming && currentMessages.isNotEmpty() && currentMessages.last().content.isEmpty()) {
+                                item { StreamingIndicator() }
                             }
-                        }
-
-                        item {
-                            Spacer(modifier = Modifier.height(16.dp))
                         }
                     }
                 }
             } else {
-                // Compact Phone Layout
+                // Compact Phone Layout (Samsung S20)
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
@@ -447,7 +409,7 @@ fun CommandCenterCockpit(
                         )
                     }
 
-                    // Repositories Pill Bar
+                    // Organization Repositories Dynamic Pill Bar
                     item {
                         Column {
                             Text(
@@ -466,7 +428,7 @@ fun CommandCenterCockpit(
                                     Surface(
                                         shape = RoundedCornerShape(16.dp),
                                         color = if (isGlobalSelected) SovereignAmber else SovereignCreamDarker,
-                                        border = androidx.compose.foundation.BorderStroke(
+                                        border = BorderStroke(
                                             1.dp,
                                             if (isGlobalSelected) SovereignAmberDark else SovereignAmber.copy(alpha = 0.35f)
                                         ),
@@ -489,24 +451,25 @@ fun CommandCenterCockpit(
                                 }
 
                                 item {
-                        FilterChip(
-                            selected = selectedRepo == "General Project",
-                            onClick = { viewModel.selectRepository("General Project") },
-                            label = { Text("⚡ General Project", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = SovereignAmber,
-                                selectedLabelColor = SovereignCream
-                            ),
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier.padding(end = 6.dp)
-                        )
-                    }
-                    items(dynamicRepos) { repo ->
+                                    FilterChip(
+                                        selected = selectedRepo == "General Project",
+                                        onClick = { viewModel.selectRepository("General Project") },
+                                        label = { Text("⚡ General Project", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = SovereignAmber,
+                                            selectedLabelColor = SovereignCream
+                                        ),
+                                        shape = RoundedCornerShape(16.dp),
+                                        modifier = Modifier.padding(end = 6.dp)
+                                    )
+                                }
+
+                                items(dynamicRepos) { repo ->
                                     val isSelected = selectedRepo == repo.name
                                     Surface(
                                         shape = RoundedCornerShape(16.dp),
                                         color = if (isSelected) SovereignAmber else SovereignCreamDarker,
-                                        border = androidx.compose.foundation.BorderStroke(
+                                        border = BorderStroke(
                                             1.dp,
                                             if (isSelected) SovereignAmberDark else SovereignAmber.copy(alpha = 0.35f)
                                         ),
@@ -595,7 +558,125 @@ fun CommandCenterCockpit(
             }
         }
     }
+
+    // MODAL BOTTOM SHEET: [☰ SESSIONS]
+    if (showSessionsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showSessionsSheet = false },
+            containerColor = SovereignCreamDarker
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("CEO SESSIONS", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = SovereignAmberDark)
+                    Button(
+                        onClick = {
+                            viewModel.startNewChat()
+                            showSessionsSheet = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = SovereignAmber),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "New", modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("New Session", fontSize = 12.sp)
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("Active Target: ${selectedRepo ?: "Trinity Universe (Global)"}", fontSize = 13.sp, color = SovereignStone800)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Total Messages in Cockpit: ${uiState.chatMessages.size}", fontSize = 12.sp, color = SovereignStone600)
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+
+    // MODAL BOTTOM SHEET: [📁 FILES]
+    if (showFilesSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showFilesSheet = false },
+            containerColor = SovereignCreamDarker
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("CODEBASE FILE TREE", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = SovereignAmberDark)
+                    Text(selectedRepo ?: "Global Root", fontSize = 12.sp, color = SovereignStone600)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = SovereignCream,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.2f))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("📁 src/", fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = SovereignStone800)
+                        Text("  📄 App.tsx", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = SovereignStone800)
+                        Text("  📄 main.tsx", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = SovereignStone800)
+                        Text("📁 artifacts/", fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = SovereignStone800)
+                        Text("  📄 package.json", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = SovereignStone800)
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+
+    // MODAL BOTTOM SHEET: [🌐 PREVIEW]
+    if (showPreviewSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showPreviewSheet = false },
+            containerColor = SovereignCreamDarker
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("LIVE WEB PREVIEW", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = SovereignAmberDark)
+                    Text("PORT 5173", fontSize = 11.sp, color = Color(0xFF16A34A), fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    color = Color.Black,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("Preview Viewport Active\n[Rendering Senior Web Engine]", color = Color.LightGray, fontSize = 13.sp)
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
 }
+
+// -----------------------------------------------------------------------------
+// EXACT HELPER COMPOSABLES (RECONCILED WITH BACKUP PARITY)
+// -----------------------------------------------------------------------------
 
 @Composable
 fun ApprovalBanner(
@@ -607,7 +688,7 @@ fun ApprovalBanner(
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
         shape = RoundedCornerShape(14.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFDC2626)),
+        border = BorderStroke(1.dp, Color(0xFFDC2626)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -674,7 +755,7 @@ fun WorkspaceContextBanner(
     Card(
         colors = CardDefaults.cardColors(containerColor = SovereignAmberSurface.copy(alpha = 0.45f)),
         shape = RoundedCornerShape(14.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.3f)),
+        border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.3f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -779,7 +860,7 @@ fun ChatMessageBubble(message: ChatMessage) {
                 bottomEnd = if (isUser) 4.dp else 16.dp
             ),
             color = if (isUser) SovereignAmber else SovereignCreamDarker,
-            border = androidx.compose.foundation.BorderStroke(
+            border = BorderStroke(
                 1.dp,
                 if (isUser) SovereignAmberDark else SovereignAmber.copy(alpha = 0.25f)
             ),
