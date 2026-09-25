@@ -1,4 +1,6 @@
 package com.sovereign.commandcenter.ui
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Card
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
@@ -1086,7 +1088,165 @@ fun StreamingIndicator() {
 }
 
 @Composable
+fun PacedStepAccordionCard(
+    step: PacedStepData,
+    modifier: Modifier = Modifier
+) {
+    var isExpanded by remember { 
+        mutableStateOf(step.actionCard.status.equals("running", ignoreCase = true) || step.actionCard.status.equals("recovering", ignoreCase = true)) 
+    }
+
+    val (statusColor, statusBg, statusText) = when (step.actionCard.status.lowercase()) {
+        "completed" -> Triple(Color(0xFF16A34A), Color(0xFFDCFCE7), "COMPLETED")
+        "running" -> Triple(Color(0xFFD97706), Color(0xFFFEF3C7), "RUNNING")
+        "recovering" -> Triple(Color(0xFFEA580C), Color(0xFFFFEDD5), "SELF-HEALING")
+        "failed" -> Triple(Color(0xFFDC2626), Color(0xFFFEE2E2), "FAILED")
+        else -> Triple(Color(0xFF6B7280), Color(0xFFF3F4F6), "QUEUED")
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFE5E7EB))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF1E293B)
+                    ) {
+                        Text(
+                            text = "Step ${step.stepIndex}/${step.totalSteps}",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    Text(
+                        text = "[${step.actionCard.tool}]",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF374151)
+                    )
+
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = statusBg
+                    ) {
+                        Text(
+                            text = statusText,
+                            color = statusColor,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                Text(
+                    text = if (isExpanded) "▲" else "▼",
+                    color = Color(0xFF6B7280),
+                    fontSize = 12.sp
+                )
+            }
+
+            if (isExpanded) {
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (step.conversationalPrelude.isNotBlank()) {
+                    Text(
+                        text = step.conversationalPrelude,
+                        fontSize = 13.sp,
+                        color = Color(0xFF4B5563),
+                        lineHeight = 18.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFF9FAFB),
+                    border = BorderStroke(1.dp, Color(0xFFF3F4F6)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "ACTION TARGET",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF9CA3AF)
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = step.actionCard.description,
+                            fontSize = 12.sp,
+                            color = Color(0xFF1F2937),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                step.selfHealingTrace?.let { trace ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFFFFBEB),
+                        border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                text = "🛡️ AUTONOMOUS SELF-HEALING (BOUNDED)",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFB45309)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Diagnosis: ${trace.failureReason}",
+                                fontSize = 11.sp,
+                                color = Color(0xFF92400E)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Resolution: ${trace.logicalResolution}",
+                                fontSize = 11.sp,
+                                color = Color(0xFF78350F),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun ChatMessageBubble(message: ChatMessage) {
+    if (message.pacedStep != null) {
+        PacedStepAccordionCard(step = message.pacedStep)
+        return
+    }
     val isUser = message.role == "user"
     Column(
         modifier = Modifier.fillMaxWidth(),

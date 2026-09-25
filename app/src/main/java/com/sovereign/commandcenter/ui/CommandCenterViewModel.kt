@@ -18,12 +18,34 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+data class ActionCardData(
+    val tool: String,
+    val description: String,
+    val status: String
+)
+
+data class SelfHealingTraceData(
+    val isAutonomous: Boolean = true,
+    val failureReason: String,
+    val logicalResolution: String,
+    val resolvedCleanly: Boolean = true
+)
+
+data class PacedStepData(
+    val stepIndex: Int,
+    val totalSteps: Int,
+    val conversationalPrelude: String,
+    val actionCard: ActionCardData,
+    val selfHealingTrace: SelfHealingTraceData? = null
+)
+
 data class ChatMessage(
     val id: String = UUID.randomUUID().toString(),
     val role: String,
     val content: String,
     val repositoryContext: String? = null,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val pacedStep: PacedStepData? = null
 )
 
 data class PendingApprovalData(
@@ -263,11 +285,15 @@ class CommandCenterViewModel(
     }
 
     fun cancelActiveStream() {
+        val currentSessionId = _uiState.value.session?.ownerId ?: "default-session"
         activeStreamJob?.cancel()
         activeStreamJob = null
         streamClient.cancelCurrentStream()
         if (_uiState.value.isStreaming) {
             _uiState.value = _uiState.value.copy(isStreaming = false)
+        }
+        viewModelScope.launch {
+            ApiClient.stopAgentSession(sessionId = currentSessionId)
         }
     }
 

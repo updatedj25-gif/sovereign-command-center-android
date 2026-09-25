@@ -424,7 +424,31 @@ object ApiClient {
         }
     }
 
-    // --- 4. HITL Approvals ---
+    // --- 4. HITL Approvals & Execution Control ---
+    suspend fun stopAgentSession(
+        sessionId: String = "default-session",
+        reason: String? = "User initiated stop from Cockpit"
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject().apply {
+                put("sessionId", sessionId)
+                if (reason != null) put("reason", reason)
+            }
+            val req = Request.Builder()
+                .url("$baseUrl/api/agent/stop")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            okHttpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string() ?: ""
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("HTTP ${resp.code}: $body"))
+                val json = runCatching { JSONObject(body) }.getOrNull()
+                Result.success(json?.optBoolean("success", true) ?: true)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
     suspend fun submitApproval(
         approvalId: String,
         approved: Boolean,
