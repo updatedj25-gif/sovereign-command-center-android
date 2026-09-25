@@ -808,4 +808,45 @@ object ApiClient {
         }
     }
 
+
+    // =========================================================================
+    // SERVER-AUTHORITATIVE DURABLE SESSION & RESTORE EXTENSIONS
+    // =========================================================================
+    suspend fun fetchSessionTranscript(sessionId: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/messages?sessionId=$sessionId")
+                .get()
+                .build()
+
+            okHttpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    Result.failure(Exception("HTTP ${resp.code}: Failed to restore session transcript"))
+                } else {
+                    Result.success(resp.body?.string() ?: "[]")
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchSessionIndex(): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/sessions")
+                .get()
+                .build()
+
+            okHttpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    Result.failure(Exception("HTTP ${resp.code}: Failed to fetch session index"))
+                } else {
+                    Result.success(resp.body?.string() ?: "[]")
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

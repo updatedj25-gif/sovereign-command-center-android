@@ -1,4 +1,14 @@
 package com.sovereign.commandcenter.ui
+
+import com.sovereign.commandcenter.voice.VoiceManager
+import com.sovereign.commandcenter.voice.VoiceInputState
+import com.sovereign.commandcenter.network.ResilientSseParser
+import com.sovereign.commandcenter.network.ResilientSseEvent
+import com.sovereign.commandcenter.data.models.DurableSession
+import com.sovereign.commandcenter.data.models.SessionTranscriptMessage
+import com.sovereign.commandcenter.data.models.DurablePacedStep
+import com.sovereign.commandcenter.preview.TruthfulPreviewCoordinator
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.update
 
 import android.content.Context
@@ -65,6 +75,7 @@ data class ChatSessionHistoryItem(
 )
 
 data class CommandCenterUiState(
+    val stagedVoiceInput: String? = null,
     val isAuthenticated: Boolean = false,
     val isAuthenticating: Boolean = false,
     val session: OwnerSession? = null,
@@ -87,6 +98,123 @@ data class CommandCenterUiState(
 class CommandCenterViewModel(
     private val streamClient: AgentStreamClient = AgentStreamClient()
 ) : ViewModel() {
+
+    // =========================================================================
+    // GROUP 4: SEQUENTIAL STEP ACCORDION RUNTIME & VM DIGNITY ERROR INTERCEPT
+    // =========================================================================
+    
+    val sseParser = ResilientSseParser()
+    private var voiceManager: VoiceManager? = null
+
+    fun initializeVoice(context: Context) {
+        if (voiceManager == null) {
+            voiceManager = VoiceManager(context.applicationContext)
+            viewModelScope.launch {
+                voiceManager?.inputState?.collect { state ->
+                    when (state) {
+                        is VoiceInputState.ReviewTranscript -> {
+                            // Stage dictated text in composer for CEO review; zero silent auto-send
+                            stageVoiceTranscript(state.recognizedText)
+                        }
+                        else -> {}
+                    }
+                }
+            }
+        }
+    }
+
+    fun startVoiceDictation() {
+        voiceManager?.startListening()
+    }
+
+    fun stopVoiceDictation() {
+        voiceManager?.stopListening()
+    }
+
+    fun stopSpeaking() {
+        // Immediate halt of speech without cancelling background execution plane
+        voiceManager?.stopSpeaking()
+    }
+
+    fun speakSanitizedResponse(rawText: String) {
+        // Strip code fences, tokens, and markdown before voice synthesis
+        val sanitized = rawText
+            .replace(Regex("```[\\s\\S]*?```"), "Code block omitted.")
+            .replace(Regex("`[^`]*`"), "")
+            .replace(Regex("(ghp_[A-Za-z0-9_]{36}|sk-[A-Za-z0-9]{32,}|Bearer\\s+[A-Za-z0-9._~+/-]+)"), "[Credential Redacted]")
+            .replace(Regex("[#*_>~]"), "")
+            .trim()
+        if (sanitized.isNotBlank()) {
+            voiceManager?.speakResponse(sanitized, true)
+        }
+    }
+
+    private fun stageVoiceTranscript(transcription: String) {
+        _uiState.update { current ->
+            current.copy(stagedVoiceInput = transcription)
+        }
+    }
+
+    fun clearStagedVoiceInput() {
+        _uiState.update { it.copy(stagedVoiceInput = null) }
+    }
+
+    // VM Dignity Error Guard: captures strictly terminal 15-20 lines on failure
+    fun extractVmDignityTail(rawLog: String): String {
+        val nonBlankLines = rawLog.lines().filter { it.isNotBlank() }
+        val tail = nonBlankLines.takeLast(20)
+        return tail.joinToString("\n")
+    }
+
+    fun applyVmDignityErrorFreeze(
+        failedStepTitle: String,
+        errorTrace: String,
+        completedCount: Int,
+        totalCount: Int
+    ) {
+        val boundedTail = extractVmDignityTail(errorTrace)
+        val remaining = (totalCount - completedCount - 1).coerceAtLeast(0)
+        
+        val failureDiagnosis = "VM Dignity Freeze on '$failedStepTitle':\n" +
+            "--------------------------------------------------\n" +
+            boundedTail + "\n" +
+            "--------------------------------------------------\n" +
+            "Task Ledger -> Done: $completedCount | In Progress: 0 | Remaining: $remaining"
+
+        val safeRemedy = "Downstream execution halted. Proposing resource-conscious resolution without cache wipe."
+
+        val dignityAccordion = PacedStepData(
+            stepIndex = completedCount + 1,
+            totalSteps = totalCount,
+            conversationalPrelude = "Execution stopped at hurdle. VM Dignity preserved.",
+            actionCard = ActionCardData(
+                tool = failedStepTitle,
+                description = "Halted: $failedStepTitle",
+                status = "FAILED"
+            ),
+            selfHealingTrace = SelfHealingTraceData(
+                isAutonomous = false,
+                failureReason = failureDiagnosis,
+                logicalResolution = safeRemedy,
+                resolvedCleanly = false
+            )
+        )
+
+        _uiState.update { state ->
+            val updatedMessages = state.chatMessages + ChatMessage(
+                role = "assistant",
+                content = "[VM Dignity Error Guard Activated] Execution safely paused on hurdle.",
+                repositoryContext = state.selectedRepository,
+                pacedStep = dignityAccordion
+            )
+            state.copy(
+                chatMessages = updatedMessages,
+                isStreaming = false,
+                errorMessage = "Execution frozen by VM Dignity Guard."
+            )
+        }
+    }
+
 
     private val _uiState = MutableStateFlow(CommandCenterUiState())
     val uiState: StateFlow<CommandCenterUiState> = _uiState.asStateFlow()
@@ -285,6 +413,8 @@ class CommandCenterViewModel(
     }
 
     fun cancelActiveStream() {
+        // Stop any active spoken audio playback on stream cancellation or session switch
+        voiceManager?.stopSpeaking()
         val currentSessionId = _uiState.value.session?.ownerId ?: "default-session"
         activeStreamJob?.cancel()
         activeStreamJob = null

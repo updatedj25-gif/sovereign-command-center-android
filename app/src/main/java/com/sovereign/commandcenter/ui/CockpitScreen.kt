@@ -33,6 +33,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sovereign.commandcenter.data.api.RepoHealth
+import com.sovereign.commandcenter.data.models.ExecutiveAuditDigestProvider
+import com.sovereign.commandcenter.data.models.AuditReport
+import com.sovereign.commandcenter.data.models.AuditSeverity
 import com.sovereign.commandcenter.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -53,10 +56,22 @@ fun CommandCenterCockpit(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
+    // Staged Voice Dictation Review Gate (Zero silent auto-send)
+    LaunchedEffect(uiState.stagedVoiceInput) {
+        uiState.stagedVoiceInput?.let { recognized ->
+            if (recognized.isNotBlank()) {
+                chatInput = if (chatInput.isBlank()) recognized else "$chatInput $recognized"
+                viewModel.clearStagedVoiceInput()
+            }
+        }
+    }
+
+
     // Secondary Menu Sheet States
     var showSessionsSheet by remember { mutableStateOf(false) }
     var showFilesSheet by remember { mutableStateOf(false) }
     var showPreviewSheet by remember { mutableStateOf(false) }
+    var showAuditInboxSheet by remember { mutableStateOf(false) }
 
     // Voice Duplex State
     var isVoiceActive by remember { mutableStateOf(false) }
@@ -112,6 +127,62 @@ fun CommandCenterCockpit(
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
+
+                    // EXECUTIVE MESSAGE MENU / DAILY AUDIT INBOX (AHEAD OF NEW CHAT)
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showAuditInboxSheet = true
+                                coroutineScope.launch { drawerState.close() }
+                            },
+                        shape = RoundedCornerShape(10.dp),
+                        color = SovereignCream,
+                        border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(SovereignAmber.copy(alpha = 0.2f), RoundedCornerShape(6.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("🛡️", fontSize = 16.sp)
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Executive Message Menu",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = SovereignStone900
+                                )
+                                Text(
+                                    "Daily Security Audit Inbox",
+                                    fontSize = 11.sp,
+                                    color = SovereignAmberDark
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFF10B981).copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f))
+                            ) {
+                                Text(
+                                    "SECURE",
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF047857)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Button(
                         onClick = {
@@ -795,6 +866,18 @@ Start chatting to record history.""""",
         }
     }
 
+    // MODAL BOTTOM SHEET: [🛡️ EXECUTIVE MESSAGE MENU / DAILY AUDIT INBOX]
+    if (showAuditInboxSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showAuditInboxSheet = false },
+            containerColor = SovereignCreamDarker
+        ) {
+            ExecutiveAuditInboxSheet(
+                onClose = { showAuditInboxSheet = false }
+            )
+        }
+    }
+
     // MODAL BOTTOM SHEET: [📁 FILES]
     if (showFilesSheet) {
         ModalBottomSheet(
@@ -1281,5 +1364,150 @@ fun ChatMessageBubble(message: ChatMessage) {
                 )
             }
         }
+    }
+}
+
+@Composable
+fun ExecutiveAuditInboxSheet(
+    onClose: () -> Unit
+) {
+    val reports = remember { ExecutiveAuditDigestProvider.dailyReports }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(20.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🛡️", fontSize = 20.sp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        "EXECUTIVE MESSAGE MENU",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = SovereignAmberDark
+                    )
+                    Text(
+                        "Daily Security Audit Digests",
+                        fontSize = 11.sp,
+                        color = SovereignStone600
+                    )
+                }
+            }
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = "Close", tint = SovereignStone800)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(reports) { report ->
+                var expanded by remember { mutableStateOf(false) }
+                val (badgeBg, badgeFg) = when (report.severity) {
+                    AuditSeverity.CRITICAL -> Color(0xFFFEE2E2) to Color(0xFFDC2626)
+                    AuditSeverity.WARNING -> Color(0xFFFEF3C7) to Color(0xFFD97706)
+                    AuditSeverity.INFO -> Color(0xFFD1FAE5) to Color(0xFF059669)
+                }
+
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { expanded = !expanded },
+                    shape = RoundedCornerShape(10.dp),
+                    color = SovereignCream,
+                    border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.3f))
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = report.title,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = SovereignStone900,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = badgeBg
+                            ) {
+                                Text(
+                                    text = report.severity.name,
+                                    color = badgeFg,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = report.affectedScope,
+                                fontSize = 11.sp,
+                                color = SovereignAmberDark,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = report.timestamp,
+                                fontSize = 10.sp,
+                                color = SovereignStone600
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = report.summary,
+                            fontSize = 12.sp,
+                            color = SovereignStone800
+                        )
+
+                        if (expanded) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            HorizontalDivider(color = SovereignAmber.copy(alpha = 0.2f), thickness = 1.dp)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "TECHNICAL AUDIT PROOF",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SovereignStone600,
+                                letterSpacing = 0.8.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = SovereignCreamDarker,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = report.technicalDetails,
+                                    fontSize = 11.sp,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    color = SovereignStone900,
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
