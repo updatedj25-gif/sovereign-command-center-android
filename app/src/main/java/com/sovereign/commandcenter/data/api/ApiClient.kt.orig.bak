@@ -1,0 +1,743 @@
+package com.sovereign.commandcenter.data.api
+
+import com.sovereign.commandcenter.data.session.SessionManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+
+// Data models
+
+data class NotificationItem(
+    val id: String,
+    val timestamp: String,
+    val severity: String,
+    val scope: String,
+    val title: String,
+    val summary: String,
+    val details: List<String> = emptyList(),
+    val acknowledged: Boolean = false
+)
+
+data class AppUpdateInfo(
+    val hasUpdate: Boolean,
+    val versionCode: Int = 0,
+    val versionName: String = "",
+    val releaseNotes: String = "",
+    val downloadUrl: String = "",
+    val sha256: String = "",
+    val signingCertificateSha256: String = "",
+    val mandatory: Boolean = false
+)
+
+data class PasskeyChallengeResponse(
+    val challengeId: String,
+    val challenge: String,
+    val rpId: String,
+    val timeoutMs: Long
+)
+
+data class PasskeyVerifyResult(
+    val success: Boolean,
+    val token: String,
+    val ownerId: String,
+    val expiresAt: String,
+    val displayName: String,
+    val role: String
+)
+
+data class StepUpChallenge(
+    val nonce: String,
+    val expiresAt: Long,
+    val targetOwner: String,
+    val algorithm: String
+)
+
+data class StepUpResult(
+    val success: Boolean,
+    val action: String,
+    val authorized: Boolean,
+    val authorizedAt: String
+)
+
+data class RepoHealth(
+    val name: String,
+    val type: String,
+    val status: String,
+    val branch: String,
+    val verifiedRelease: String,
+    val pendingApprovals: Int
+)
+
+data class OrgHealth(
+    val organization: String,
+    val ceo: String,
+    val timestamp: String,
+    val overallHealth: String,
+    val pendingApprovalsCount: Int,
+    val repositories: List<RepoHealth>
+)
+
+data class CeoMessage(
+    val id: String,
+    val trigger: String,
+    val repository: String,
+    val severity: String,
+    val timestamp: String,
+    val whatSovereignFound: String,
+    val whatSovereignDid: String,
+    val whatRemains: String,
+    val requiresApproval: Boolean
+)
+
+data class ApprovalResult(
+    val success: Boolean,
+    val approvalId: String,
+    val approved: Boolean,
+    val reason: String
+)
+
+
+data class GovernedProfile(
+    val id: String,
+    val displayName: String,
+    val githubOwner: String,
+    val githubRepo: String,
+    val cloudflareWorker: String,
+    val cloudflareProfile: String,
+    val defaultBranch: String,
+    val allowedBranches: List<String> = emptyList(),
+    val environments: List<String> = emptyList(),
+    val approvalPolicy: String = "strict_biometric"
+)
+
+data class SuccessMemoryRecord(
+    val id: String,
+    val scope: String,
+    val timestamp: String,
+    val intent: String,
+    val diagnosis: String,
+    val filesModified: List<String> = emptyList(),
+    val successfulDiff: String = "",
+    val verifiedCommands: List<String> = emptyList(),
+    val verificationProofSha: String = "",
+    val confidenceScore: Double = 1.0,
+    val tags: List<String> = emptyList()
+)
+
+
+data class ActivityEvidence(
+    val exitCode: Int,
+    val stdout: String,
+    val stderr: String,
+    val durationMs: Long,
+    val cwd: String,
+    val outputDigestSha256: String
+)
+
+data class ActivityRecord(
+    val id: String,
+    val sessionId: String,
+    val leaseId: String,
+    val kind: String,
+    val status: String,
+    val evidence: ActivityEvidence? = null,
+    val error: String? = null,
+    val completedWithNoOutput: Boolean = false
+) {
+    fun isEvidenceComplete(): Boolean {
+        if (status != "completed") return true
+        if (completedWithNoOutput) return true
+        val ev = evidence ?: return false
+        return ev.exitCode >= 0 && ev.durationMs >= 0 && ev.cwd.isNotBlank() && ev.outputDigestSha256.length == 64
+    }
+}
+
+data class BrokerLease(
+    val leaseId: String,
+    val ownerId: String,
+    val sessionId: String,
+    val profileId: String,
+    val branch: String,
+    val environment: String,
+    val sequenceNumber: Long,
+    val capabilities: List<String> = emptyList(),
+    val issuedAt: Long,
+    val expiresAt: Long,
+    val status: String
+) {
+    fun isActive(now: Long = System.currentTimeMillis()): Boolean = status == "active" && now <= expiresAt
+}
+
+object ApiClient {
+    @Volatile
+    var allowTestOverride: Boolean = false
+    private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+    @Volatile
+    var baseUrl: String = com.sovereign.commandcenter.BuildConfig.API_BASE_URL
+        set(value) {
+            val sanitized = value.trim().removeSuffix("/")
+            if (!com.sovereign.commandcenter.BuildConfig.DEBUG && !allowTestOverride) {
+                require(sanitized.startsWith("https://")) { "Release builds permit HTTPS only" }
+                require(!sanitized.contains("localhost") && !sanitized.contains("127.0.0.1") && !sanitized.contains("10.0.2.2")) { "Release builds reject local loopbacks" }
+                require(!sanitized.contains("trycloudflare.com")) { "Temporary tunnels are forbidden" }
+            }
+            field = sanitized
+        }
+
+    val okHttpClient: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .addInterceptor { chain ->
+            val original = chain.request()
+            val requestBuilder = original.newBuilder()
+
+            // Attach authoritative session cookie if available
+            val cookie = SessionManager.getAuthCookieHeader()
+            if (!cookie.isNullOrEmpty()) {
+                requestBuilder.header("Cookie", cookie)
+            }
+            chain.proceed(requestBuilder.build())
+        }
+        .build()
+
+    // --- 1. Passkey Authentication ---
+    suspend fun getPasskeyChallenge(): Result<PasskeyChallengeResponse> = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/auth/passkey/challenge")
+                .post("{}".toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            okHttpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string() ?: ""
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("HTTP ${resp.code}: $body"))
+                val json = JSONObject(body)
+                val challengeId = json.getString("challengeId")
+                val challenge = json.getString("challenge")
+                val rpId = json.getJSONObject("rp").getString("id")
+                val timeout = json.optLong("timeout", 120_000L)
+                Result.success(PasskeyChallengeResponse(challengeId, challenge, rpId, timeout))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun verifyPasskey(challengeId: String, clientDataJSON: String? = null): Result<PasskeyVerifyResult> = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject().apply {
+                put("challengeId", challengeId)
+                if (clientDataJSON != null) put("clientDataJSON", clientDataJSON)
+            }
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/auth/passkey/verify")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            okHttpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string() ?: ""
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("HTTP ${resp.code}: $body"))
+                val json = JSONObject(body)
+                val user = json.optJSONObject("user")
+                val result = PasskeyVerifyResult(
+                    success = json.optBoolean("success", false),
+                    token = json.getString("token"),
+                    ownerId = json.getString("ownerId"),
+                    expiresAt = json.getString("expiresAt"),
+                    displayName = user?.optString("name", "Adebola James Ogunjimi") ?: "Adebola James Ogunjimi",
+                    role = user?.optString("role", "CEO") ?: "CEO"
+                )
+                Result.success(result)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- 2. Action-Bound Biometric Step-Up ---
+    suspend fun getStepUpChallenge(): Result<StepUpChallenge> = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/auth/step-up/challenge")
+                .post("{}".toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            okHttpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string() ?: ""
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("HTTP ${resp.code}: $body"))
+                val json = JSONObject(body)
+                Result.success(
+                    StepUpChallenge(
+                        nonce = json.getString("nonce"),
+                        expiresAt = json.getLong("expiresAt"),
+                        targetOwner = json.getString("targetOwner"),
+                        algorithm = json.getString("algorithm")
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun verifyStepUp(nonce: String, signature: String, action: String): Result<StepUpResult> = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject().apply {
+                put("nonce", nonce)
+                put("signature", signature)
+                put("action", action)
+            }
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/auth/step-up/verify")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            okHttpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string() ?: ""
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("HTTP ${resp.code}: $body"))
+                val json = JSONObject(body)
+                Result.success(
+                    StepUpResult(
+                        success = json.optBoolean("success", false),
+                        action = json.getString("action"),
+                        authorized = json.optBoolean("authorized", false),
+                        authorizedAt = json.optString("authorizedAt", "")
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- 3. Organization Health & CEO Messages ---
+    suspend fun getOrgHealth(): Result<OrgHealth> = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/org/health")
+                .get()
+                .build()
+
+            okHttpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string() ?: ""
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("HTTP ${resp.code}: $body"))
+                val json = JSONObject(body)
+                val reposArray = json.optJSONArray("repositories") ?: JSONArray()
+                val repos = mutableListOf<RepoHealth>()
+                for (i in 0 until reposArray.length()) {
+                    val r = reposArray.getJSONObject(i)
+                    repos.add(
+                        RepoHealth(
+                            name = r.getString("name"),
+                            type = r.optString("type", ""),
+                            status = r.optString("status", "nominal"),
+                            branch = r.optString("branch", "main"),
+                            verifiedRelease = r.optString("verifiedRelease", ""),
+                            pendingApprovals = r.optInt("pendingApprovals", 0)
+                        )
+                    )
+                }
+                Result.success(
+                    OrgHealth(
+                        organization = json.getString("organization"),
+                        ceo = json.getString("ceo"),
+                        timestamp = json.getString("timestamp"),
+                        overallHealth = json.getString("overallHealth"),
+                        pendingApprovalsCount = json.optInt("pendingApprovalsCount", 0),
+                        repositories = repos
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getMessages(): Result<List<CeoMessage>> = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/messages")
+                .get()
+                .build()
+
+            okHttpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string() ?: ""
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("HTTP ${resp.code}: $body"))
+                val json = JSONObject(body)
+                val msgsArray = json.optJSONArray("messages") ?: JSONArray()
+                val messages = mutableListOf<CeoMessage>()
+                for (i in 0 until msgsArray.length()) {
+                    val m = msgsArray.getJSONObject(i)
+                    messages.add(
+                        CeoMessage(
+                            id = m.getString("id"),
+                            trigger = m.optString("trigger", "system"),
+                            repository = m.optString("repository", "Sovereign"),
+                            severity = m.optString("severity", "info"),
+                            timestamp = m.optString("timestamp", ""),
+                            whatSovereignFound = m.optString("whatSovereignFound", ""),
+                            whatSovereignDid = m.optString("whatSovereignDid", ""),
+                            whatRemains = m.optString("whatRemains", ""),
+                            requiresApproval = m.optBoolean("requiresApproval", false)
+                        )
+                    )
+                }
+                Result.success(messages)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun resolveMessage(messageId: String, action: String, reason: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject().apply {
+                put("action", action)
+                if (reason != null) put("reason", reason)
+            }
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/messages/$messageId/resolve")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            okHttpClient.newCall(req).execute().use { resp ->
+                Result.success(resp.isSuccessful)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- 4. HITL Approvals ---
+    suspend fun submitApproval(
+        approvalId: String,
+        approved: Boolean,
+        reason: String? = null,
+        sessionId: String = "default-session"
+    ): Result<ApprovalResult> = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject().apply {
+                put("approvalId", approvalId)
+                put("approved", approved)
+                put("sessionId", sessionId)
+                if (reason != null) put("reason", reason)
+            }
+            val req = Request.Builder()
+                .url("$baseUrl/api/agent/approve")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            okHttpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string() ?: ""
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("HTTP ${resp.code}: $body"))
+                val json = JSONObject(body)
+                Result.success(
+                    ApprovalResult(
+                        success = json.optBoolean("success", false),
+                        approvalId = json.getString("approvalId"),
+                        approved = json.getBoolean("approved"),
+                        reason = json.optString("reason", "")
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- 5. GitHub Updates (Dynamic Auto-Updater) ---
+    fun checkForUpdate(currentVersionCode: Int = 2, onResult: (AppUpdateInfo?) -> Unit) {
+        Thread {
+            try {
+                val req = Request.Builder()
+                    .url("$baseUrl/api/command-center/mobile/android/update")
+                    .header("Accept", "application/json")
+                    .build()
+                val resp = okHttpClient.newCall(req).execute()
+                val bodyStr = resp.body?.string() ?: ""
+                if (resp.isSuccessful && bodyStr.isNotEmpty()) {
+                    val json = JSONObject(bodyStr)
+                    val serverVersionCode = json.optInt("versionCode", 0)
+                    val versionName = json.optString("versionName", "")
+                    val releaseNotes = json.optString("releaseNotes", "System updates and security improvements.")
+                    val downloadUrl = json.optString("apkUrl", "")
+                    val sha256 = json.optString("sha256", "")
+                    val certSha256 = json.optString("signingCertificateSha256", "")
+                    val mandatory = json.optBoolean("mandatory", false)
+
+                    val hasUpdate = serverVersionCode > currentVersionCode && downloadUrl.startsWith("https://")
+
+                    onResult(AppUpdateInfo(
+                        hasUpdate = hasUpdate,
+                        versionCode = serverVersionCode,
+                        versionName = versionName,
+                        releaseNotes = releaseNotes,
+                        downloadUrl = downloadUrl,
+                        sha256 = sha256,
+                        signingCertificateSha256 = certSha256,
+                        mandatory = mandatory
+                    ))
+                } else {
+                    onResult(null)
+                }
+            } catch (_: Exception) {
+                onResult(null)
+            }
+        }.start()
+    }
+
+    /**
+     * Downloads an update APK and verifies its SHA-256 digest before allowing installation.
+     */
+    fun downloadAndVerifyApk(
+        context: android.content.Context,
+        updateInfo: AppUpdateInfo,
+        onProgress: (Int) -> Unit,
+        onVerified: (java.io.File) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (!updateInfo.downloadUrl.startsWith("https://")) {
+            onError("Insecure download URL rejected. HTTPS is mandatory.")
+            return
+        }
+
+        Thread {
+            try {
+                val req = Request.Builder().url(updateInfo.downloadUrl).build()
+                val resp = okHttpClient.newCall(req).execute()
+                if (!resp.isSuccessful) {
+                    onError("Download failed with HTTP ${resp.code}")
+                    return@Thread
+                }
+
+                val body = resp.body ?: run {
+                    onError("Empty response body from update server")
+                    return@Thread
+                }
+
+                val updateDir = java.io.File(context.cacheDir, "updates").apply { mkdirs() }
+                // Clear old updates
+                updateDir.listFiles()?.forEach { it.delete() }
+
+                val targetFile = java.io.File(updateDir, "update_${updateInfo.versionCode}.apk")
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+
+                body.byteStream().use { input ->
+                    targetFile.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var bytesRead: Int
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            digest.update(buffer, 0, bytesRead)
+                            output.write(buffer, 0, bytesRead)
+                        }
+                        output.flush()
+                    }
+                }
+
+                val calculatedHash = digest.digest().joinToString("") { "%02x".format(it) }
+
+                // If server provides a checksum, require strict match
+                if (updateInfo.sha256.isNotBlank() && !calculatedHash.equals(updateInfo.sha256.trim(), ignoreCase = true)) {
+                    targetFile.delete()
+                    onError("SHA-256 Checksum Mismatch! Expected: ${updateInfo.sha256}, Got: $calculatedHash")
+                    return@Thread
+                }
+
+                onVerified(targetFile)
+            } catch (e: Exception) {
+                onError("Download and verification error: ${e.message}")
+            }
+        }.start()
+    }
+
+
+    // --- 5. Dual-Account Governance Profiles ---
+    suspend fun getGovernedProfiles(): Result<List<GovernedProfile>> = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/registry/profiles")
+                .get()
+                .build()
+
+            okHttpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string() ?: ""
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("HTTP ${resp.code}: $body"))
+                val json = JSONObject(body)
+                val profilesArray = json.optJSONArray("profiles") ?: JSONArray()
+                val profiles = mutableListOf<GovernedProfile>()
+                for (i in 0 until profilesArray.length()) {
+                    val p = profilesArray.getJSONObject(i)
+                    val allowedBranches = mutableListOf<String>()
+                    val bArr = p.optJSONArray("allowedBranches")
+                    if (bArr != null) {
+                        for (j in 0 until bArr.length()) allowedBranches.add(bArr.getString(j))
+                    }
+                    val envs = mutableListOf<String>()
+                    val eArr = p.optJSONArray("environments")
+                    if (eArr != null) {
+                        for (j in 0 until eArr.length()) envs.add(eArr.getString(j))
+                    }
+                    profiles.add(
+                        GovernedProfile(
+                            id = p.getString("id"),
+                            displayName = p.optString("displayName", ""),
+                            githubOwner = p.optString("githubOwner", "updatedj25-gif"),
+                            githubRepo = p.optString("githubRepo", ""),
+                            cloudflareWorker = p.optString("cloudflareWorker", ""),
+                            cloudflareProfile = p.optString("cloudflareProfile", "sovereign"),
+                            defaultBranch = p.optString("defaultBranch", "main"),
+                            allowedBranches = allowedBranches,
+                            environments = envs,
+                            approvalPolicy = p.optString("approvalPolicy", "strict_biometric")
+                        )
+                    )
+                }
+                Result.success(profiles)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- 6. Success Memory Vault Queries ---
+    suspend fun getSuccessMemories(scope: String? = null, tag: String? = null): Result<List<SuccessMemoryRecord>> = withContext(Dispatchers.IO) {
+        try {
+            val url = buildString {
+                append("$baseUrl/api/command-center/memories")
+                val params = mutableListOf<String>()
+                if (!scope.isNullOrBlank()) params.add("scope=" + java.net.URLEncoder.encode(scope, "UTF-8"))
+                if (!tag.isNullOrBlank()) params.add("tag=" + java.net.URLEncoder.encode(tag, "UTF-8"))
+                if (params.isNotEmpty()) {
+                    append("?")
+                    append(params.joinToString("&"))
+                }
+            }
+
+            val req = Request.Builder()
+                .url(url)
+                .get()
+                .build()
+
+            okHttpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string() ?: ""
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("HTTP ${resp.code}: $body"))
+                val json = JSONObject(body)
+                val memArray = json.optJSONArray("memories") ?: JSONArray()
+                val memories = mutableListOf<SuccessMemoryRecord>()
+                for (i in 0 until memArray.length()) {
+                    val m = memArray.getJSONObject(i)
+                    val files = mutableListOf<String>()
+                    val fArr = m.optJSONArray("filesModified")
+                    if (fArr != null) {
+                        for (j in 0 until fArr.length()) files.add(fArr.getString(j))
+                    }
+                    val cmds = mutableListOf<String>()
+                    val cArr = m.optJSONArray("verifiedCommands")
+                    if (cArr != null) {
+                        for (j in 0 until cArr.length()) cmds.add(cArr.getString(j))
+                    }
+                    val tags = mutableListOf<String>()
+                    val tArr = m.optJSONArray("tags")
+                    if (tArr != null) {
+                        for (j in 0 until tArr.length()) tags.add(tArr.getString(j))
+                    }
+                    memories.add(
+                        SuccessMemoryRecord(
+                            id = m.getString("id"),
+                            scope = m.optString("scope", "global"),
+                            timestamp = m.optString("timestamp", ""),
+                            intent = m.optString("intent", ""),
+                            diagnosis = m.optString("diagnosis", ""),
+                            filesModified = files,
+                            successfulDiff = m.optString("successfulDiff", ""),
+                            verifiedCommands = cmds,
+                            verificationProofSha = m.optString("verificationProofSha", ""),
+                            confidenceScore = m.optDouble("confidenceScore", 1.0),
+                            tags = tags
+                        )
+                    )
+                }
+                Result.success(memories)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+
+    suspend fun getNotifications(): List<NotificationItem> = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/notifications")
+                .get()
+                .build()
+            val resp = okHttpClient.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful || body.isEmpty()) return@withContext emptyList()
+            val json = JSONObject(body)
+            val arr = json.optJSONArray("notifications") ?: return@withContext emptyList()
+            val list = mutableListOf<NotificationItem>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val detailsArr = obj.optJSONArray("details")
+                val details = mutableListOf<String>()
+                if (detailsArr != null) {
+                    for (j in 0 until detailsArr.length()) {
+                        details.add(detailsArr.getString(j))
+                    }
+                }
+                list.add(
+                    NotificationItem(
+                        id = obj.optString("id"),
+                        timestamp = obj.optString("timestamp"),
+                        severity = obj.optString("severity", "INFO"),
+                        scope = obj.optString("scope", "SYSTEM"),
+                        title = obj.optString("title"),
+                        summary = obj.optString("summary"),
+                        details = details,
+                        acknowledged = obj.optBoolean("acknowledged", false)
+                    )
+                )
+            }
+            list
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun triggerSecurityAudit(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/notifications/trigger-audit")
+                .post("{}".toRequestBody("application/json".toMediaType()))
+                .build()
+            val resp = okHttpClient.newCall(req).execute()
+            resp.isSuccessful
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun acknowledgeNotification(id: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val bodyObj = JSONObject().put("actor", "CEO")
+            val req = Request.Builder()
+                .url("$baseUrl/api/command-center/notifications/$id/acknowledge")
+                .post(bodyObj.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+            val resp = okHttpClient.newCall(req).execute()
+            resp.isSuccessful
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+}

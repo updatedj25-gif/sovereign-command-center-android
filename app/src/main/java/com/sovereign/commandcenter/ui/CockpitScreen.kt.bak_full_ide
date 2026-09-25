@@ -68,11 +68,6 @@ fun CommandCenterCockpit(
 
 
     // Secondary Menu Sheet States
-    // Primary Navigation: CHAT | FILES | PREVIEW
-    var activeTab by rememberSaveable { mutableStateOf("CHAT") }
-    var selectedFileContent by remember { mutableStateOf<Pair<String, String>?>(null) }
-    var fileSearchQuery by remember { mutableStateOf("") }
-    var previewDeviceMode by remember { mutableStateOf("MOBILE") }
     var showSessionsSheet by remember { mutableStateOf(false) }
     var showFilesSheet by remember { mutableStateOf(false) }
     var showPreviewSheet by remember { mutableStateOf(false) }
@@ -384,7 +379,7 @@ Start chatting to record history.""""",
                 )
 
                 // SECONDARY NAVIGATION BAR: [CHAT] | [FILES] | [PREVIEW]
-                val isChatActive = (activeTab == "CHAT")
+                val isChatActive = !showFilesSheet && !showPreviewSheet
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -397,12 +392,11 @@ Start chatting to record history.""""",
                         modifier = Modifier
                             .weight(1f)
                             .clickable {
-                                activeTab = "CHAT"
                                 showFilesSheet = false
                                 showPreviewSheet = false
                             },
                         shape = RoundedCornerShape(12.dp),
-                        color = if (activeTab == "CHAT") SovereignAmber else SovereignCream,
+                        color = if (isChatActive) SovereignAmber else SovereignCream,
                         border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.4f))
                     ) {
                         Row(
@@ -421,15 +415,11 @@ Start chatting to record history.""""",
                         modifier = Modifier
                             .weight(1f)
                             .clickable {
-                                activeTab = "FILES"
                                 showPreviewSheet = false
-                                showFilesSheet = false
-                                if (uiState.repoTree.isEmpty() && !uiState.isTreeLoading) {
-                                    viewModel.loadRepoTree(selectedRepo)
-                                }
+                                showFilesSheet = true
                             },
                         shape = RoundedCornerShape(12.dp),
-                        color = if (activeTab == "FILES") SovereignAmber else SovereignCream,
+                        color = if (showFilesSheet) SovereignAmber else SovereignCream,
                         border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.4f))
                     ) {
                         Row(
@@ -448,12 +438,11 @@ Start chatting to record history.""""",
                         modifier = Modifier
                             .weight(1f)
                             .clickable {
-                                activeTab = "PREVIEW"
                                 showFilesSheet = false
-                                showPreviewSheet = false
+                                showPreviewSheet = true
                             },
                         shape = RoundedCornerShape(12.dp),
-                        color = if (activeTab == "PREVIEW") SovereignAmber else SovereignCream,
+                        color = if (showPreviewSheet) SovereignAmber else SovereignCream,
                         border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.4f))
                     ) {
                         Row(
@@ -470,7 +459,6 @@ Start chatting to record history.""""",
             }
         },
         bottomBar = {
-            if (activeTab == "CHAT") {
             // CURVY INPUT BAR CONTAINER
             Surface(
                 modifier = Modifier
@@ -481,7 +469,31 @@ Start chatting to record history.""""",
                 border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.3f))
             ) {
                 Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-// Red banner eliminated for clean CEO keyboard ergonomics
+                    // EMERGENCY RED KILL SWITCH BANNER (When agent is executing)
+                    AnimatedVisibility(visible = uiState.isStreaming) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 6.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFFEF2F2))
+                                .border(1.dp, Color(0xFFEF4444), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(Color(0xFFDC2626), CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("AGENT STREAM ACTIVE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB91C1C))
+                            }
+                            Text("Emergency Red Switch Armed", fontSize = 11.sp, color = Color(0xFFDC2626), fontWeight = FontWeight.Medium)
+                        }
+                    }
 
                     // THE CURVY INPUT ROW
                     Row(
@@ -540,8 +552,31 @@ Start chatting to record history.""""",
                             )
                         }
 
-                        // High-Signal Action Button: SEND when typing; STOP only when streaming & idle
-                        if (chatInput.isNotBlank()) {
+                        // EMERGENCY RED KILL SWITCH (Server Authoritative Cancellation)
+                        Surface(
+                            modifier = Modifier
+                                .padding(end = 4.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable {
+                                    viewModel.cancelActiveStream()
+                                    isVoiceActive = false
+                                    Toast.makeText(context, "EMERGENCY STOP EXECUTED", Toast.LENGTH_SHORT).show()
+                                },
+                            color = if (uiState.isStreaming) Color(0xFFDC2626) else Color(0xFF991B1B),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Clear, contentDescription = "Kill Switch", tint = Color.White, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("STOP", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                            }
+                        }
+
+                        // Send Button
+                        AnimatedVisibility(visible = chatInput.isNotBlank()) {
                             IconButton(
                                 onClick = {
                                     val msg = chatInput
@@ -553,32 +588,9 @@ Start chatting to record history.""""",
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = SovereignCream)
                             }
-                        } else if (uiState.isStreaming) {
-                            Surface(
-                                modifier = Modifier
-                                    .padding(end = 4.dp)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .clickable {
-                                        viewModel.cancelActiveStream()
-                                        isVoiceActive = false
-                                        Toast.makeText(context, "EMERGENCY STOP EXECUTED", Toast.LENGTH_SHORT).show()
-                                    },
-                                color = Color(0xFFDC2626),
-                                shape = RoundedCornerShape(16.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Kill Switch", tint = Color.White, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text("STOP", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                                }
-                            }
                         }
                     }
                 }
-            }
             }
         },
         containerColor = SovereignCream
@@ -590,28 +602,7 @@ Start chatting to record history.""""",
         ) {
             val isTablet = maxWidth >= 720.dp
 
-            when (activeTab) {
-                "FILES" -> {
-                    FullPageVsCodeExplorer(
-                        selectedRepo = selectedRepo,
-                        uiState = uiState,
-                        searchQuery = fileSearchQuery,
-                        onSearchChange = { fileSearchQuery = it },
-                        selectedFile = selectedFileContent,
-                        onSelectFile = { name, c -> selectedFileContent = name to c },
-                        onCloseFile = { selectedFileContent = null },
-                        onRetry = { viewModel.loadRepoTree(selectedRepo) }
-                    )
-                }
-                "PREVIEW" -> {
-                    FullPageModernPreview(
-                        selectedRepo = selectedRepo,
-                        deviceMode = previewDeviceMode,
-                        onDeviceModeChange = { previewDeviceMode = it }
-                    )
-                }
-                else -> {
-                    if (isTablet) {
+            if (isTablet) {
                 // Dual-Pane Tablet Layout
                 Row(
                     modifier = Modifier
@@ -887,11 +878,8 @@ Start chatting to record history.""""",
         }
     }
 
-                }
-            }
-
-    // [📁 FILES] and [🌐 PREVIEW] upgraded to Full-Page Modes
-    if (false && showFilesSheet) {
+    // MODAL BOTTOM SHEET: [📁 FILES]
+    if (showFilesSheet) {
         ModalBottomSheet(
             onDismissRequest = { showFilesSheet = false },
             containerColor = SovereignCreamDarker
@@ -974,7 +962,7 @@ Start chatting to record history.""""",
     }
 
     // MODAL BOTTOM SHEET: [🌐 PREVIEW]
-    if (false && showPreviewSheet) {
+    if (showPreviewSheet) {
         val previewEval = remember(selectedRepo) {
             com.sovereign.commandcenter.preview.TruthfulPreviewCoordinator.evaluatePreview(
                 kind = com.sovereign.commandcenter.preview.PreviewKind.WEB_APP,
@@ -1553,321 +1541,5 @@ fun ExecutiveAuditInboxSheet(
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
-    }
-}
-
-
-// =============================================================================
-// FULL-PAGE VS CODE STYLE EXPLORER COMPONENT
-// =============================================================================
-@Composable
-fun FullPageVsCodeExplorer(
-    selectedRepo: String?,
-    uiState: CommandCenterUiState,
-    searchQuery: String,
-    onSearchChange: (String) -> Unit,
-    selectedFile: Pair<String, String>?,
-    onSelectFile: (String, String) -> Unit,
-    onCloseFile: () -> Unit,
-    onRetry: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(SovereignCream)
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = SovereignCreamDarker,
-            border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.3f))
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Folder, contentDescription = "Explorer", tint = SovereignAmberDark, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "EXPLORER: " + (selectedRepo ?: "Trinity Universe"),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = SovereignStone900
-                    )
-                }
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = SovereignAmber.copy(alpha = 0.2f)
-                ) {
-                    Text(
-                        text = "${uiState.repoTree.size} files",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = SovereignAmberDark,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-            }
-        }
-
-        if (selectedFile != null) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = Color(0xFF1E1E1E)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = selectedFile.first,
-                            color = Color(0xFF9CDCFE),
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        IconButton(onClick = onCloseFile, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.Clear, contentDescription = "Close", tint = Color.LightGray, modifier = Modifier.size(16.dp))
-                        }
-                    }
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color(0xFF1E1E1E))
-                        .padding(12.dp)
-                ) {
-                    Text(
-                        text = selectedFile.second,
-                        color = Color(0xFFD4D4D4),
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                        fontSize = 12.sp,
-                        lineHeight = 18.sp
-                    )
-                }
-            }
-        } else {
-            Column(modifier = Modifier.fillMaxSize().padding(14.dp)) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = onSearchChange,
-                    placeholder = { Text("Search files in repository...", fontSize = 12.sp, color = SovereignStone600) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = SovereignAmber,
-                        unfocusedBorderColor = SovereignAmber.copy(alpha = 0.3f)
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                when {
-                    uiState.isTreeLoading -> {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CircularProgressIndicator(color = SovereignAmberDark, modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text("Loading repository tree...", fontSize = 12.sp, color = SovereignStone800)
-                            }
-                        }
-                    }
-                    uiState.treeError != null -> {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(uiState.treeError ?: "", color = Color(0xFFDC2626), fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Button(
-                                    onClick = onRetry,
-                                    colors = ButtonDefaults.buttonColors(containerColor = SovereignAmber),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Text("Retry Loading", color = SovereignStone900, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                }
-                            }
-                        }
-                    }
-                    uiState.repoTree.isEmpty() -> {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("No files found in active repository.", fontSize = 12.sp, color = SovereignStone600)
-                        }
-                    }
-                    else -> {
-                        val filtered = uiState.repoTree.filter { it.path.contains(searchQuery, ignoreCase = true) }
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            items(filtered) { entry ->
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            onSelectFile(entry.path, "// Synchronized Workspace Artifact: " + entry.path + "\n// VM Dignity Protocol")
-                                        },
-                                    color = SovereignCreamDarker,
-                                    shape = RoundedCornerShape(6.dp),
-                                    border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.15f))
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        val icon = if (entry.type == "tree") "📁" else "📄"
-                                        Text(icon, fontSize = 12.sp)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = entry.path,
-                                            fontSize = 12.sp,
-                                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                            color = SovereignStone900
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// =============================================================================
-// FULL-PAGE MODERN RESPONSIVE UI PREVIEW COMPONENT
-// =============================================================================
-@Composable
-fun FullPageModernPreview(
-    selectedRepo: String?,
-    deviceMode: String,
-    onDeviceModeChange: (String) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(SovereignCream)
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = SovereignCreamDarker,
-            border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.3f))
-        ) {
-            Column(modifier = Modifier.padding(10.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Surface(
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(20.dp),
-                        color = SovereignCream,
-                        border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.3f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("🔒", fontSize = 11.sp)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "http://localhost:5173",
-                                fontSize = 12.sp,
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                color = SovereignStone900
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        listOf("MOBILE" to "📱", "TABLET" to "📟", "DESKTOP" to "💻").forEach { (mode, icon) ->
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (deviceMode == mode) SovereignAmber else SovereignCream,
-                                modifier = Modifier.clickable { onDeviceModeChange(mode) },
-                                border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.4f))
-                            ) {
-                                Text(icon, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 12.sp)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            val widthModifier = when (deviceMode) {
-                "MOBILE" -> Modifier.width(360.dp)
-                "TABLET" -> Modifier.width(520.dp)
-                else -> Modifier.fillMaxWidth()
-            }
-
-            Surface(
-                modifier = widthModifier
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(16.dp)),
-                color = Color.White,
-                shadowElevation = 8.dp,
-                border = BorderStroke(2.dp, SovereignStone800.copy(alpha = 0.15f))
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(42.dp),
-                        color = SovereignAmberDark,
-                        strokeWidth = 3.dp
-                    )
-                    Spacer(modifier = Modifier.height(18.dp))
-                    Text(
-                        text = "Senior Sovereign Web Engine",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = SovereignStone900
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Syncing live dev server on port 5173\nWaiting for WebSocket compilation signal...",
-                        fontSize = 12.sp,
-                        color = SovereignStone600,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        lineHeight = 16.sp
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = SovereignCream,
-                        border = BorderStroke(1.dp, SovereignAmber.copy(alpha = 0.4f))
-                    ) {
-                        Text(
-                            text = "PORT: 5173 • SANDBOX ISOLATED",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = SovereignAmberDark,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-            }
-        }
     }
 }
