@@ -420,7 +420,7 @@ class CommandCenterViewModel(
     fun cancelActiveStream() {
         // Stop any active spoken audio playback on stream cancellation or session switch
         voiceManager?.stopSpeaking()
-        val currentSessionId = _uiState.value.session?.ownerId ?: "default-session"
+        val currentSessionId = _uiState.value.session?.ownerId ?: "ceo-command-session"
         activeStreamJob?.cancel()
         activeStreamJob = null
         streamClient.cancelCurrentStream()

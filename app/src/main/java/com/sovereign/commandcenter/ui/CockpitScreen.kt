@@ -540,20 +540,8 @@ Start chatting to record history.""""",
                             )
                         }
 
-                        // High-Signal Action Button: SEND when typing; STOP only when streaming & idle
-                        if (chatInput.isNotBlank()) {
-                            IconButton(
-                                onClick = {
-                                    val msg = chatInput
-                                    chatInput = ""
-                                    viewModel.sendMessage(msg)
-                                },
-                                modifier = Modifier.size(38.dp),
-                                colors = IconButtonDefaults.filledIconButtonColors(containerColor = SovereignAmber)
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = SovereignCream)
-                            }
-                        } else if (uiState.isStreaming) {
+                        // Persistent Stop & Action Controls: STOP is always accessible during active work
+                        if (uiState.isStreaming) {
                             Surface(
                                 modifier = Modifier
                                     .padding(end = 4.dp)
@@ -574,6 +562,20 @@ Start chatting to record history.""""",
                                     Spacer(modifier = Modifier.width(3.dp))
                                     Text("STOP", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
                                 }
+                            }
+                        }
+
+                        if (chatInput.isNotBlank()) {
+                            IconButton(
+                                onClick = {
+                                    val msg = chatInput
+                                    chatInput = ""
+                                    viewModel.sendMessage(msg)
+                                },
+                                modifier = Modifier.size(38.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(containerColor = SovereignAmber)
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = SovereignCream)
                             }
                         }
                     }
