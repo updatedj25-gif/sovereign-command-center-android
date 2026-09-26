@@ -141,7 +141,7 @@ class CommandCenterViewModelTest {
         testScheduler.advanceUntilIdle()
 
         val messagesRepoB = viewModel.uiState.value.chatMessages.filter { it.repositoryContext == "Repository-B" }
-        val assistantMsgRepoB = messagesRepoB.find { it.role == "assistant" }
+        val assistantMsgRepoB = messagesRepoB.findLast { it.role == "assistant" }
         assertTrue(assistantMsgRepoB?.content?.contains("VALID_CHUNK_FROM_REPO_B") == true)
 
         // 7. Confirm the UI does not revert to Repository A
