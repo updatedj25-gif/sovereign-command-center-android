@@ -182,21 +182,35 @@ class CommandCenterViewModel(
             "--------------------------------------------------\n" +
             "Task Ledger -> Done: $completedCount | In Progress: 0 | Remaining: $remaining"
 
-        val safeRemedy = "Downstream execution halted. Proposing resource-conscious resolution without cache wipe."
+        val smartAlternative = "SMART RESOLUTION (Zero VM Maxout):\n" +
+            "1. Surgical Delta: Apply targeted code/config patch without clearing dependency cache.\n" +
+            "2. Preservation Guard: Warm Gradle and E2B runtime caches remain intact.\n" +
+            "3. Bounded Execution: Tool retries capped at 3 to prevent E2B CPU/disk saturation.\n" +
+            "Awaiting CEO directive to execute targeted remedy."
+
+        val conversationalDiscussion = "I encountered an operational hurdle during '" + failedStepTitle + "'.\n\n" +
+            "Downstream execution was halted immediately to protect the E2B MicroVM and host storage margin.\n\n" +
+            "\uD83D\uDEE1\uFE0F RESOURCE DIGNITY ADVISORY:\n" +
+            "Rather than triggering destructive cache wipes (such as gradlew clean) that risk ENOSPC disk failure, " +
+            "I have isolated the hurdle and formulated a smart alternative.\n\n" +
+            "\uD83D\uDCA1 PROPOSED SMART ALTERNATIVE:\n" +
+            "• Apply path-specific surgical correction directly to the affected component.\n" +
+            "• Preserve warm dependency caches and VM memory headroom.\n" +
+            "• Execute verification strictly under single-worker bounds."
 
         val dignityAccordion = PacedStepData(
             stepIndex = completedCount + 1,
             totalSteps = totalCount,
-            conversationalPrelude = "Execution stopped at hurdle. VM Dignity preserved.",
+            conversationalPrelude = "Technical Proof: Bounded Failure Diagnostic",
             actionCard = ActionCardData(
                 tool = failedStepTitle,
-                description = "Halted: $failedStepTitle",
-                status = "FAILED"
+                description = "Execution Halted: $failedStepTitle",
+                status = "RECOVERING"
             ),
             selfHealingTrace = SelfHealingTraceData(
                 isAutonomous = false,
                 failureReason = failureDiagnosis,
-                logicalResolution = safeRemedy,
+                logicalResolution = smartAlternative,
                 resolvedCleanly = false
             )
         )
@@ -204,14 +218,14 @@ class CommandCenterViewModel(
         _uiState.update { state ->
             val updatedMessages = state.chatMessages + ChatMessage(
                 role = "assistant",
-                content = "[VM Dignity Error Guard Activated] Execution safely paused on hurdle.",
+                content = conversationalDiscussion,
                 repositoryContext = state.selectedRepository,
                 pacedStep = dignityAccordion
             )
             state.copy(
                 chatMessages = updatedMessages,
                 isStreaming = false,
-                errorMessage = "Execution frozen by VM Dignity Guard."
+                errorMessage = "Hurdle paused: " + failedStepTitle + ". Smart alternative proposed."
             )
         }
     }
@@ -281,9 +295,32 @@ class CommandCenterViewModel(
         if (_uiState.value.selectedRepository == repo) return
         cancelActiveStream()
         val newVersion = _uiState.value.contextVersion + 1
+        val briefingMsg = if (repo != null && _uiState.value.chatMessages.none { it.repositoryContext == repo }) {
+            ChatMessage(
+                role = "assistant",
+                content = "\uD83C\uDFDB EXECUTIVE BRIEFING: " + repo + "\n" +
+                    "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n" +
+                    "• Context: origin/" + _uiState.value.selectedBranch + "\n" +
+                    "• Governance: Governed Organization Codebase\n" +
+                    "• Sandbox: E2B MicroVM with Server-Held Token Brokerage\n" +
+                    "• Credentials: Session Vault Attached\n" +
+                    "• Status: Synchronized & Primed for Directives\n" +
+                    "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n" +
+                    "Sovereign Agent is ready for your instructions.",
+                repositoryContext = repo
+            )
+        } else null
+
+        val updatedMessages = if (briefingMsg != null) {
+            _uiState.value.chatMessages + briefingMsg
+        } else {
+            _uiState.value.chatMessages
+        }
+
         _uiState.value = _uiState.value.copy(
             selectedRepository = repo,
             contextVersion = newVersion,
+            chatMessages = updatedMessages,
             isStreaming = false
         )
         loadRepoTree(repo)
@@ -351,10 +388,11 @@ class CommandCenterViewModel(
                         _uiState.value = _uiState.value.copy(pendingApproval = null)
                     }
                     is StreamEvent.TaskFailed -> {
-                        // Defect 1 & 3 Fix: Halt execution, do not pollute text bubble with raw error prose
-                        _uiState.value = _uiState.value.copy(
-                            isStreaming = false,
-                            errorMessage = "Task paused: " + event.summary.take(80)
+                        applyVmDignityErrorFreeze(
+                            failedStepTitle = event.task ?: "Task Step",
+                            errorTrace = event.summary,
+                            completedCount = 0,
+                            totalCount = 1
                         )
                     }
                     is StreamEvent.SessionConflict -> {
@@ -368,6 +406,7 @@ class CommandCenterViewModel(
                         _uiState.value = _uiState.value.copy(isStreaming = false)
                     }
                     is StreamEvent.TaskRunning -> {
+                        _uiState.value = _uiState.value.copy(isStreaming = true)
                     }
                 }
             }

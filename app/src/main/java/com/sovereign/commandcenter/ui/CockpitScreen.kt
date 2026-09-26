@@ -28,6 +28,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -515,7 +521,23 @@ Start chatting to record history.""""",
                             placeholder = { Text(placeholderText, fontSize = 13.sp, color = SovereignStone600) },
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(horizontal = 4.dp),
+                                .padding(horizontal = 4.dp)
+                                .onPreviewKeyEvent { keyEvent ->
+                                    if (keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.Enter) {
+                                        if (keyEvent.isShiftPressed) {
+                                            false
+                                        } else {
+                                            if (chatInput.isNotBlank()) {
+                                                val msg = chatInput
+                                                chatInput = ""
+                                                viewModel.sendMessage(msg)
+                                            }
+                                            true
+                                        }
+                                    } else {
+                                        false
+                                    }
+                                },
                             shape = RoundedCornerShape(20.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Color.Transparent,
@@ -1372,10 +1394,53 @@ fun PacedStepAccordionCard(
 
 @Composable
 fun ChatMessageBubble(message: ChatMessage) {
-    if (message.pacedStep != null) {
-        PacedStepAccordionCard(step = message.pacedStep)
-        return
+    val isUser = message.role == "user"
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
+    ) {
+        if (message.content.isNotBlank()) {
+            Surface(
+                shape = RoundedCornerShape(
+                    topStart = 16.dp,
+                    topEnd = 16.dp,
+                    bottomStart = if (isUser) 16.dp else 4.dp,
+                    bottomEnd = if (isUser) 4.dp else 16.dp
+                ),
+                color = if (isUser) SovereignAmber else SovereignCreamDarker,
+                border = BorderStroke(
+                    1.dp,
+                    if (isUser) SovereignAmberDark else SovereignAmber.copy(alpha = 0.25f)
+                ),
+                modifier = Modifier.widthIn(max = 340.dp)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = if (isUser) "CEO" else "Sovereign Agent",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isUser) SovereignCream else SovereignAmberDark
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = message.content,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isUser) SovereignCream else SovereignStone950
+                    )
+                }
+            }
+        }
+        if (message.pacedStep != null) {
+            if (message.content.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+            PacedStepAccordionCard(step = message.pacedStep)
+        }
     }
+}
+
+@Composable
+fun LegacyUnusedBubbleMarker(message: ChatMessage) {
     val isUser = message.role == "user"
     Column(
         modifier = Modifier.fillMaxWidth(),
