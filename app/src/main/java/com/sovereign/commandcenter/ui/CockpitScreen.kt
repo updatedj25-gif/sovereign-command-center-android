@@ -291,8 +291,8 @@ fun CommandCenterCockpit(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                """""No prior sessions yet.
-Start chatting to record history.""""",
+                                """No prior sessions yet.
+Start chatting to record history.""",
                                 fontSize = 12.sp,
                                 color = SovereignStone600,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center

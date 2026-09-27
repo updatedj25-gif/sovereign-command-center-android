@@ -69,7 +69,7 @@ class ResilientSseParser {
         }
 
         val rawData = dataBuffer.toString().trim()
-        if (rawData.isEmpty() || rawData == "[DONE]") return
+        if (rawData.isEmpty() || rawData == "[DONE]" || rawData == "data: [DONE]") return
 
         try {
             val json = JSONObject(rawData)

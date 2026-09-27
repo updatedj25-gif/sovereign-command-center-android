@@ -192,20 +192,35 @@ open class AgentStreamClient {
                 "completed" -> {
                     emitter(StreamEvent.Completed)
                 }
+                "stream_finished" -> {
+                    val finalResp = json.optString("finalResponse").takeIf { it.isNotEmpty() }
+                        ?: json.optString("content").takeIf { it.isNotEmpty() }
+                    if (!finalResp.isNullOrEmpty() && finalResp != "[DONE]") {
+                        emitter(StreamEvent.ContentChunk(finalResp))
+                    }
+                    emitter(StreamEvent.Completed)
+                }
                 "error" -> {
                     emitter(StreamEvent.Error(json.optString("error", "Unknown agent error")))
                 }
                 else -> {
-                    val content = json.optString("content").takeIf { it.isNotEmpty() }
+                    val content = json.optString("text").takeIf { it.isNotEmpty() }
+                        ?: json.optString("content").takeIf { it.isNotEmpty() }
                         ?: json.optString("message").takeIf { it.isNotEmpty() }
+                        ?: json.optString("finalResponse").takeIf { it.isNotEmpty() }
                         ?: ""
-                    if (content.isNotEmpty()) {
+                    if (content.isNotEmpty() && content != "[DONE]") {
                         emitter(StreamEvent.ContentChunk(content))
                     }
                 }
             }
         } catch (_: Exception) {
-            emitter(StreamEvent.ContentChunk(jsonStr))
+            val cleanStr = jsonStr.trim()
+            if (cleanStr != "[DONE]" && cleanStr != "data: [DONE]" && cleanStr.isNotEmpty()) {
+                emitter(StreamEvent.ContentChunk(cleanStr))
+            } else if (cleanStr == "[DONE]" || cleanStr == "data: [DONE]") {
+                emitter(StreamEvent.Completed)
+            }
         }
     }
 
