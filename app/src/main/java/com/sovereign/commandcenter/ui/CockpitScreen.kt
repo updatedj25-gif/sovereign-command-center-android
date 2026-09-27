@@ -1,4 +1,9 @@
 package com.sovereign.commandcenter.ui
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Card
 
@@ -86,6 +91,31 @@ fun CommandCenterCockpit(
 
     // Voice Duplex State
     var isVoiceActive by remember { mutableStateOf(false) }
+
+    // Microphone Permission Request Launcher
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            isVoiceActive = true
+            viewModel.initializeVoice(context)
+            viewModel.startVoiceDictation()
+            Toast.makeText(context, "Voice: Listening...", Toast.LENGTH_SHORT).show()
+        } else {
+            isVoiceActive = false
+            Toast.makeText(context, "Microphone permission required for voice.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Transfer transcribed speech directly into prompt composer
+    LaunchedEffect(uiState.stagedVoiceInput) {
+        uiState.stagedVoiceInput?.let { voiceText ->
+            if (voiceText.isNotBlank()) {
+                chatInput = if (chatInput.isBlank()) voiceText else "$chatInput $voiceText"
+                viewModel.clearStagedVoiceInput()
+            }
+        }
+    }
 
     val selectedRepo = uiState.selectedRepository
     val currentMessages = remember(uiState.chatMessages, selectedRepo) {
@@ -547,11 +577,28 @@ Start chatting to record history.""""",
                             maxLines = 4
                         )
 
-                        // Voice Mic Duplex Button
+                        // Voice Mic Duplex Button with Permission & State Machine
                         IconButton(
                             onClick = {
-                                isVoiceActive = !isVoiceActive
-                                Toast.makeText(context, if (isVoiceActive) "Voice Duplex: Listening..." else "Voice Duplex: Muted", Toast.LENGTH_SHORT).show()
+                                viewModel.initializeVoice(context)
+                                val hasMicPerm = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+
+                                if (!hasMicPerm) {
+                                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                } else {
+                                    isVoiceActive = !isVoiceActive
+                                    if (isVoiceActive) {
+                                        viewModel.startVoiceDictation()
+                                        Toast.makeText(context, "Voice Duplex: Listening...", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        viewModel.stopVoiceDictation()
+                                        viewModel.stopSpeaking()
+                                        Toast.makeText(context, "Voice Duplex: Muted", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                             },
                             modifier = Modifier.size(38.dp)
                         ) {
@@ -562,32 +609,26 @@ Start chatting to record history.""""",
                             )
                         }
 
-                        // Persistent Stop & Action Controls: STOP is always accessible during active work
+                        // Responsive Action Button: Transforms into Emergency STOP while streaming
                         if (uiState.isStreaming) {
-                            Surface(
-                                modifier = Modifier
-                                    .padding(end = 4.dp)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .clickable {
-                                        viewModel.cancelActiveStream()
-                                        isVoiceActive = false
-                                        Toast.makeText(context, "EMERGENCY STOP EXECUTED", Toast.LENGTH_SHORT).show()
-                                    },
-                                color = Color(0xFFDC2626),
-                                shape = RoundedCornerShape(16.dp)
+                            IconButton(
+                                onClick = {
+                                    viewModel.cancelActiveStream()
+                                    viewModel.stopSpeaking()
+                                    viewModel.stopVoiceDictation()
+                                    isVoiceActive = false
+                                    Toast.makeText(context, "EMERGENCY STOP EXECUTED", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.size(38.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFDC2626))
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Kill Switch", tint = Color.White, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text("STOP", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                                }
+                                Icon(
+                                    Icons.Default.Clear,
+                                    contentDescription = "Emergency Stop",
+                                    tint = Color.White
+                                )
                             }
-                        }
-
-                        if (chatInput.isNotBlank()) {
+                        } else if (chatInput.isNotBlank()) {
                             IconButton(
                                 onClick = {
                                     val msg = chatInput
@@ -597,7 +638,11 @@ Start chatting to record history.""""",
                                 modifier = Modifier.size(38.dp),
                                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = SovereignAmber)
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = SovereignCream)
+                                Icon(
+                                    Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = "Send",
+                                    tint = SovereignCream
+                                )
                             }
                         }
                     }

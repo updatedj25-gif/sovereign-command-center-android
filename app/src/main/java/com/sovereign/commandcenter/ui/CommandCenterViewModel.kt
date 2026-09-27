@@ -404,6 +404,10 @@ class CommandCenterViewModel(
                     }
                     is StreamEvent.Completed -> {
                         _uiState.value = _uiState.value.copy(isStreaming = false)
+                        val assistantMsg = _uiState.value.chatMessages.find { it.id == assistantPlaceholderId }?.content ?: ""
+                        if (assistantMsg.isNotBlank()) {
+                            speakSanitizedResponse(assistantMsg)
+                        }
                     }
                     is StreamEvent.TaskRunning -> {
                         _uiState.value = _uiState.value.copy(isStreaming = true)
