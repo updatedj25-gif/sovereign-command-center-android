@@ -209,7 +209,8 @@ open class AgentStreamClient {
                         ?: json.optString("message").takeIf { it.isNotEmpty() }
                         ?: json.optString("finalResponse").takeIf { it.isNotEmpty() }
                         ?: ""
-                    if (content.isNotEmpty() && content != "[DONE]") {
+                    val isTelemetry = json.optBoolean("is_telemetry", false) || json.has("tool") || json.has("stepId")
+                    if (content.isNotEmpty() && content != "[DONE]" && !isTelemetry) {
                         emitter(StreamEvent.ContentChunk(content))
                     }
                 }

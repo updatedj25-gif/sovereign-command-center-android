@@ -779,7 +779,11 @@ object ApiClient {
         branch: String = "main"
     ): Result<List<RepoTreeEntry>> = withContext(Dispatchers.IO) {
         try {
-            val url = "$baseUrl/api/github/repos/$owner/$repo/tree?ref=$branch"
+            val canonicalRepo = when (repo.trim().lowercase()) {
+                "sovereign coding agent", "sovereign_agent", "senior sovereign" -> "sovereign-command-center-android"
+                else -> repo.trim().replace(" ", "-")
+            }
+            val url = "$baseUrl/api/github/repos/$owner/$canonicalRepo/tree?ref=$branch"
             val req = Request.Builder().url(url).get().build()
             okHttpClient.newCall(req).execute().use { resp ->
                 val body = resp.body?.string() ?: ""

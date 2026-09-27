@@ -410,6 +410,11 @@ class CommandCenterViewModel(
                         }
                     }
                     is StreamEvent.TaskRunning -> {
+                        // Unlatch any prior failure or Dignity Freeze on new step progress
+                        _uiState.value = _uiState.value.copy(
+                            errorMessage = null,
+                            pendingApproval = null
+                        )
                         _uiState.value = _uiState.value.copy(isStreaming = true)
                     }
                 }

@@ -1958,7 +1958,11 @@ fun FullPageModernPreview(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Syncing live dev server on port 5173\nWaiting for WebSocket compilation signal...",
+                        text = if (selectedRepo?.contains("android", ignoreCase = true) == true || selectedRepo?.contains("sovereign", ignoreCase = true) == true) {
+                        "Native Android Workspace Detected\nVite Dev Server inactive • Direct APK & Gradle tasks available"
+                    } else {
+                        "Syncing live dev server on port 5173\nWaiting for WebSocket compilation signal..."
+                    },
                         fontSize = 12.sp,
                         color = SovereignStone600,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
