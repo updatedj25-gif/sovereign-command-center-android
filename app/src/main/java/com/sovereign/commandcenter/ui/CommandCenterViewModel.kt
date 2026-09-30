@@ -47,7 +47,9 @@ data class PacedStepData(
     val totalSteps: Int,
     val conversationalPrelude: String,
     val actionCard: ActionCardData,
-    val selfHealingTrace: SelfHealingTraceData? = null
+    val selfHealingTrace: SelfHealingTraceData? = null,
+    val stepId: String = "",
+    val output: String = ""
 )
 
 data class ChatMessage(
@@ -56,8 +58,12 @@ data class ChatMessage(
     val content: String,
     val repositoryContext: String? = null,
     val timestamp: Long = System.currentTimeMillis(),
+    val pacedSteps: List<PacedStepData> = emptyList(),
     val pacedStep: PacedStepData? = null
-)
+) {
+    val allPacedSteps: List<PacedStepData>
+        get() = if (pacedSteps.isNotEmpty()) pacedSteps else (pacedStep?.let { listOf(it) } ?: emptyList())
+}
 
 data class PendingApprovalData(
     val approvalId: String,
@@ -403,6 +409,7 @@ class CommandCenterViewModel(
                         _uiState.value = _uiState.value.copy(isStreaming = false)
                     }
                     is StreamEvent.Completed -> {
+                        finalizeActiveSteps(assistantPlaceholderId)
                         _uiState.value = _uiState.value.copy(isStreaming = false)
                         val assistantMsg = _uiState.value.chatMessages.find { it.id == assistantPlaceholderId }?.content ?: ""
                         if (assistantMsg.isNotBlank()) {
@@ -410,15 +417,149 @@ class CommandCenterViewModel(
                         }
                     }
                     is StreamEvent.TaskRunning -> {
-                        // Unlatch any prior failure or Dignity Freeze on new step progress
                         _uiState.value = _uiState.value.copy(
                             errorMessage = null,
-                            pendingApproval = null
+                            pendingApproval = null,
+                            isStreaming = true
                         )
-                        _uiState.value = _uiState.value.copy(isStreaming = true)
+                        recordTaskRunning(
+                            messageId = assistantPlaceholderId,
+                            tool = event.tool,
+                            stepId = event.stepId,
+                            turn = event.turn,
+                            taskDesc = event.task
+                        )
+                    }
+                    is StreamEvent.TaskProgress -> {
+                        recordTaskProgress(
+                            messageId = assistantPlaceholderId,
+                            tool = event.tool,
+                            output = event.output,
+                            stepId = event.stepId
+                        )
+                    }
+                    is StreamEvent.TaskCompleted -> {
+                        recordTaskCompleted(
+                            messageId = assistantPlaceholderId,
+                            tool = event.tool,
+                            stepId = event.stepId,
+                            summary = event.summary
+                        )
                     }
                 }
             }
+        }
+    }
+
+    private fun recordTaskRunning(
+        messageId: String,
+        tool: String,
+        stepId: String?,
+        turn: Int?,
+        taskDesc: String?
+    ) {
+        val effectiveId = stepId ?: "step-${turn ?: System.currentTimeMillis()}"
+        val desc = taskDesc ?: "Executing tool: $tool"
+        _uiState.update { current ->
+            val updated = current.chatMessages.map { msg ->
+                if (msg.id == messageId) {
+                    val existingSteps = msg.pacedSteps
+                    val existingIdx = existingSteps.indexOfFirst { it.stepId == effectiveId }
+                    val currentTurn = turn ?: (existingSteps.size + 1)
+                    val totalEst = maxOf(currentTurn, existingSteps.size + 1)
+
+                    val updatedSteps = if (existingIdx >= 0) {
+                        existingSteps.toMutableList().also { list ->
+                            val existing = list[existingIdx]
+                            list[existingIdx] = existing.copy(
+                                actionCard = existing.actionCard.copy(
+                                    tool = tool,
+                                    description = desc,
+                                    status = "RUNNING"
+                                )
+                            )
+                        }
+                    } else {
+                        // Mark any previous running step as completed
+                        val resolved = existingSteps.map { st ->
+                            if (st.actionCard.status.equals("RUNNING", ignoreCase = true)) {
+                                st.copy(actionCard = st.actionCard.copy(status = "COMPLETED"))
+                            } else st
+                        }
+                        val newStep = PacedStepData(
+                            stepIndex = currentTurn,
+                            totalSteps = totalEst,
+                            conversationalPrelude = "Action Execution",
+                            actionCard = ActionCardData(tool = tool, description = desc, status = "RUNNING"),
+                            stepId = effectiveId
+                        )
+                        resolved + newStep
+                    }
+                    msg.copy(pacedSteps = updatedSteps)
+                } else msg
+            }
+            current.copy(chatMessages = updated)
+        }
+    }
+
+    private fun recordTaskProgress(messageId: String, tool: String, output: String, stepId: String?) {
+        if (output.isBlank()) return
+        _uiState.update { current ->
+            val updated = current.chatMessages.map { msg ->
+                if (msg.id == messageId && msg.pacedSteps.isNotEmpty()) {
+                    val steps = msg.pacedSteps.toMutableList()
+                    val targetIdx = if (!stepId.isNullOrEmpty()) {
+                        steps.indexOfFirst { it.stepId == stepId }
+                    } else {
+                        steps.indexOfLast { it.actionCard.status.equals("RUNNING", ignoreCase = true) }
+                    }
+                    if (targetIdx >= 0) {
+                        val target = steps[targetIdx]
+                        steps[targetIdx] = target.copy(output = target.output + output)
+                    }
+                    msg.copy(pacedSteps = steps)
+                } else msg
+            }
+            current.copy(chatMessages = updated)
+        }
+    }
+
+    private fun recordTaskCompleted(messageId: String, tool: String, stepId: String?, summary: String?) {
+        _uiState.update { current ->
+            val updated = current.chatMessages.map { msg ->
+                if (msg.id == messageId && msg.pacedSteps.isNotEmpty()) {
+                    val steps = msg.pacedSteps.map { st ->
+                        val matches = (stepId != null && st.stepId == stepId) ||
+                                      (stepId == null && st.actionCard.status.equals("RUNNING", ignoreCase = true))
+                        if (matches) {
+                            st.copy(
+                                actionCard = st.actionCard.copy(
+                                    status = "COMPLETED",
+                                    description = summary ?: st.actionCard.description
+                                )
+                            )
+                        } else st
+                    }
+                    msg.copy(pacedSteps = steps)
+                } else msg
+            }
+            current.copy(chatMessages = updated)
+        }
+    }
+
+    private fun finalizeActiveSteps(messageId: String) {
+        _uiState.update { current ->
+            val updated = current.chatMessages.map { msg ->
+                if (msg.id == messageId && msg.pacedSteps.isNotEmpty()) {
+                    val steps = msg.pacedSteps.map { st ->
+                        if (st.actionCard.status.equals("RUNNING", ignoreCase = true)) {
+                            st.copy(actionCard = st.actionCard.copy(status = "COMPLETED"))
+                        } else st
+                    }
+                    msg.copy(pacedSteps = steps)
+                } else msg
+            }
+            current.copy(chatMessages = updated)
         }
     }
 

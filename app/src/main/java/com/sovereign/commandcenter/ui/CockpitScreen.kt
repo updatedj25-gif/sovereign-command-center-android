@@ -1284,6 +1284,240 @@ fun StreamingIndicator() {
 }
 
 @Composable
+fun PacedStepTaskGroupAccordion(
+    steps: List<PacedStepData>,
+    modifier: Modifier = Modifier
+) {
+    if (steps.isEmpty()) return
+    val totalCount = steps.size
+    val completedCount = steps.count { it.actionCard.status.equals("completed", ignoreCase = true) }
+    val hasRunning = steps.any { it.actionCard.status.equals("running", ignoreCase = true) }
+    val hasFailed = steps.any { it.actionCard.status.equals("failed", ignoreCase = true) || it.actionCard.status.equals("recovering", ignoreCase = true) }
+
+    var isGroupOpen by remember { mutableStateOf(true) }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+        border = BorderStroke(1.dp, if (hasFailed) Color(0xFFEF4444) else if (hasRunning) SovereignAmber else Color(0xFF334155))
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            // Header: Overall Task Execution Group Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isGroupOpen = !isGroupOpen },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (hasFailed) Color(0xFFDC2626) else if (hasRunning) SovereignAmber else Color(0xFF16A34A)
+                ) {
+                    Text(
+                        text = if (hasFailed) "HALTED" else if (hasRunning) "EXECUTING" else "CONVERGED",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Task Execution Plan ($completedCount/$totalCount completed)",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                if (hasRunning) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        strokeWidth = 2.dp,
+                        color = SovereignAmber
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                Icon(
+                    imageVector = if (isGroupOpen) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = "Toggle Group",
+                    tint = Color(0xFF94A3B8),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            // Group Content: Steps in execution order
+            if (isGroupOpen) {
+                Spacer(modifier = Modifier.height(8.dp))
+                steps.forEachIndexed { index, step ->
+                    PacedStepItemRow(step = step, isLast = index == steps.lastIndex)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PacedStepItemRow(
+    step: PacedStepData,
+    isLast: Boolean
+) {
+    val isRunning = step.actionCard.status.equals("running", ignoreCase = true)
+    val isFailed = step.actionCard.status.equals("failed", ignoreCase = true) || step.actionCard.status.equals("recovering", ignoreCase = true)
+    var isExpanded by remember { mutableStateOf(isRunning || isFailed) }
+
+    // Auto-sync expansion state when running or failed
+    LaunchedEffect(step.actionCard.status) {
+        if (isRunning || isFailed) {
+            isExpanded = true
+        }
+    }
+
+    val (badgeColor, badgeBg, badgeText) = when (step.actionCard.status.lowercase()) {
+        "completed" -> Triple(Color(0xFF16A34A), Color(0xFFDCFCE7), "COMPLETED")
+        "running" -> Triple(Color(0xFFD97706), Color(0xFFFEF3C7), "RUNNING")
+        "recovering" -> Triple(Color(0xFFEA580C), Color(0xFFFFEDD5), "RECOVERING")
+        "failed" -> Triple(Color(0xFFDC2626), Color(0xFFFEE2E2), "FAILED")
+        else -> Triple(Color(0xFF6B7280), Color(0xFFF3F4F6), "QUEUED")
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color(0xFF1E293B)
+                ) {
+                    Text(
+                        text = "Step ${step.stepIndex}/${step.totalSteps}",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "[${step.actionCard.tool}]",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF334155),
+                    modifier = Modifier.weight(1f)
+                )
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = badgeBg
+                ) {
+                    Text(
+                        text = badgeText,
+                        color = badgeColor,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = "Expand Step",
+                    tint = Color(0xFF64748B),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            if (isExpanded) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFFF8FAFC),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Text(
+                            text = "ACTION TARGET",
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF94A3B8)
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = step.actionCard.description,
+                            fontSize = 11.sp,
+                            color = Color(0xFF1E293B)
+                        )
+
+                        if (step.output.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "TECHNICAL EXECUTION LOG",
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF94A3B8)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF0F172A),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = step.output.takeLast(1200),
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = Color(0xFF38BDF8),
+                                    modifier = Modifier.padding(6.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                step.selfHealingTrace?.let { trace ->
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFFFFBEB),
+                        border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            Text(
+                                text = "BOUNDED DIAGNOSTIC & SELF-HEALING",
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFB45309)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = trace.failureReason,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = Color(0xFF78350F)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun PacedStepAccordionCard(
     step: PacedStepData,
     modifier: Modifier = Modifier
@@ -1475,11 +1709,11 @@ fun ChatMessageBubble(message: ChatMessage) {
                 }
             }
         }
-        if (message.pacedStep != null) {
+        if (message.allPacedSteps.isNotEmpty()) {
             if (message.content.isNotBlank()) {
                 Spacer(modifier = Modifier.height(6.dp))
             }
-            PacedStepAccordionCard(step = message.pacedStep)
+            PacedStepTaskGroupAccordion(steps = message.allPacedSteps)
         }
     }
 }

@@ -17,7 +17,23 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 
 sealed class StreamEvent {
-    data class TaskRunning(val tool: String, val stepId: String?, val turn: Int?) : StreamEvent()
+    data class TaskRunning(
+        val tool: String,
+        val stepId: String?,
+        val turn: Int?,
+        val task: String? = null
+    ) : StreamEvent()
+    data class TaskProgress(
+        val tool: String,
+        val output: String,
+        val stepId: String? = null,
+        val success: Boolean? = null
+    ) : StreamEvent()
+    data class TaskCompleted(
+        val tool: String,
+        val stepId: String? = null,
+        val summary: String? = null
+    ) : StreamEvent()
     data class ApprovalRequired(
         val approvalId: String,
         val tool: String,
@@ -147,11 +163,39 @@ open class AgentStreamClient {
             val json = JSONObject(jsonStr)
             when (json.optString("type")) {
                 "task_running" -> {
+                    val taskDesc = json.optString("task").takeIf { it.isNotEmpty() }
+                        ?: json.optString("description").takeIf { it.isNotEmpty() }
+                        ?: json.optString("thought").takeIf { it.isNotEmpty() }
                     emitter(
                         StreamEvent.TaskRunning(
                             tool = json.optString("tool", "executing"),
-                            stepId = json.optString("stepId", ""),
-                            turn = json.optInt("turn")
+                            stepId = json.optString("stepId", "").takeIf { it.isNotEmpty() },
+                            turn = if (json.has("turn")) json.optInt("turn") else null,
+                            task = taskDesc
+                        )
+                    )
+                }
+                "task_progress" -> {
+                    val outputText = json.optString("output").takeIf { it.isNotEmpty() }
+                        ?: json.optString("chunk").takeIf { it.isNotEmpty() }
+                        ?: json.optString("stdout").takeIf { it.isNotEmpty() }
+                        ?: ""
+                    emitter(
+                        StreamEvent.TaskProgress(
+                            tool = json.optString("tool", "executing"),
+                            output = outputText,
+                            stepId = json.optString("stepId", "").takeIf { it.isNotEmpty() },
+                            success = if (json.has("success")) json.optBoolean("success") else null
+                        )
+                    )
+                }
+                "task_completed", "tool_completed" -> {
+                    emitter(
+                        StreamEvent.TaskCompleted(
+                            tool = json.optString("tool", "executing"),
+                            stepId = json.optString("stepId", "").takeIf { it.isNotEmpty() },
+                            summary = json.optString("summary").takeIf { it.isNotEmpty() }
+                                ?: json.optString("output").takeIf { it.isNotEmpty() }
                         )
                     )
                 }
