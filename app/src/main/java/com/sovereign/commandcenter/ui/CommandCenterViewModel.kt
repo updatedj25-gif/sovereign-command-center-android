@@ -354,6 +354,18 @@ class CommandCenterViewModel(
                 }
 
                 when (event) {
+                    is StreamEvent.TaskBriefing -> {
+                        // Dynamic discussion briefing appears as an authentic chat bubble
+                        appendAssistantChatBubble(event.text)
+                    }
+                    is StreamEvent.StepSummary -> {
+                        // 1-2 line post-action discussion appears as an authentic chat bubble
+                        appendAssistantChatBubble(event.text)
+                    }
+                    is StreamEvent.TaskCorrection -> {
+                        // Mark active step as recovering / self-healing in accordion
+                        recordTaskSelfHealing(event.stepId, event.task, event.output, event.correction)
+                    }
                     is StreamEvent.ContentChunk -> {
                         appendAssistantContent(assistantPlaceholderId, event.content)
                     }
@@ -534,6 +546,45 @@ class CommandCenterViewModel(
                         } else st
                     }
                     msg.copy(pacedSteps = steps)
+                } else msg
+            }
+            current.copy(chatMessages = updated)
+        }
+    }
+
+    private fun appendAssistantChatBubble(text: String) {
+        if (text.isBlank()) return
+        _uiState.update { current ->
+            val newBubble = ChatMessage(
+                role = "assistant",
+                content = text.trim()
+            )
+            current.copy(chatMessages = current.chatMessages + newBubble)
+        }
+    }
+
+    private fun recordTaskSelfHealing(stepId: String?, task: String?, output: String?, correction: String?) {
+        _uiState.update { current ->
+            val updated = current.chatMessages.map { msg ->
+                if (msg.pacedSteps.isNotEmpty()) {
+                    val updatedSteps = msg.pacedSteps.map { st ->
+                        val matches = (stepId != null && st.stepId == stepId) ||
+                                      (stepId == null && st.actionCard.status.equals("RUNNING", ignoreCase = true))
+                        if (matches) {
+                            st.copy(
+                                actionCard = st.actionCard.copy(
+                                    status = "RECOVERING",
+                                    description = task ?: st.actionCard.description
+                                ),
+                                selfHealingTrace = SelfHealingTraceData(
+                                    failureReason = output ?: "Error during execution",
+                                    logicalResolution = correction ?: "Applying autonomous recovery fix",
+                                    resolvedCleanly = false
+                                )
+                            )
+                        } else st
+                    }
+                    msg.copy(pacedSteps = updatedSteps)
                 } else msg
             }
             current.copy(chatMessages = updated)

@@ -17,6 +17,9 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 
 sealed class StreamEvent {
+    data class TaskBriefing(val text: String, val stepId: String? = null, val turn: Int? = null) : StreamEvent()
+    data class StepSummary(val text: String, val stepId: String? = null, val turn: Int? = null) : StreamEvent()
+    data class TaskCorrection(val stepId: String?, val task: String?, val output: String?, val correction: String?) : StreamEvent()
     data class TaskRunning(
         val tool: String,
         val stepId: String?,
@@ -162,19 +165,50 @@ open class AgentStreamClient {
         try {
             val json = JSONObject(jsonStr)
             when (json.optString("type")) {
-                "task_running" -> {
+                                "task_briefing" -> {
+                    val briefingText = json.optString("text").takeIf { it.isNotEmpty() }
+                        ?: json.optString("message", "")
+                    if (briefingText.isNotEmpty()) {
+                        emitter(StreamEvent.TaskBriefing(
+                            text = briefingText,
+                            stepId = json.optString("stepId").takeIf { it.isNotEmpty() },
+                            turn = if (json.has("turn")) json.optInt("turn") else null
+                        ))
+                    }
+                }
+                "step_summary" -> {
+                    val sumText = json.optString("text").takeIf { it.isNotEmpty() }
+                        ?: json.optString("summary", "")
+                    if (sumText.isNotEmpty()) {
+                        emitter(StreamEvent.StepSummary(
+                            text = sumText,
+                            stepId = json.optString("stepId").takeIf { it.isNotEmpty() },
+                            turn = if (json.has("turn")) json.optInt("turn") else null
+                        ))
+                    }
+                }
+                "task_correction_required" -> {
+                    val recoveryObj = json.optJSONObject("recovery")
+                    emitter(StreamEvent.TaskCorrection(
+                        stepId = json.optString("stepId").takeIf { it.isNotEmpty() },
+                        task = json.optString("task", "Corrective Action"),
+                        output = json.optString("output", ""),
+                        correction = recoveryObj?.optString("correction") ?: "Self-healing diagnostic active"
+                    ))
+                }
+                "task_started", "task_running" -> {
                     val taskDesc = json.optString("task").takeIf { it.isNotEmpty() }
+                        ?: json.optString("title").takeIf { it.isNotEmpty() }
                         ?: json.optString("description").takeIf { it.isNotEmpty() }
                         ?: json.optString("thought").takeIf { it.isNotEmpty() }
                     emitter(
                         StreamEvent.TaskRunning(
-                            tool = json.optString("tool", "executing"),
-                            stepId = json.optString("stepId", "").takeIf { it.isNotEmpty() },
+                            tool = json.optString("tool").takeIf { it.isNotEmpty() } ?: json.optString("phase", "execute"),
+                            stepId = json.optString("stepId").takeIf { it.isNotEmpty() } ?: json.optString("id").takeIf { it.isNotEmpty() },
                             turn = if (json.has("turn")) json.optInt("turn") else null,
                             task = taskDesc
                         )
                     )
-                }
                 "task_progress" -> {
                     val outputText = json.optString("output").takeIf { it.isNotEmpty() }
                         ?: json.optString("chunk").takeIf { it.isNotEmpty() }
