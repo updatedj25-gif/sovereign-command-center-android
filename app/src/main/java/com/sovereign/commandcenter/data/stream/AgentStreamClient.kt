@@ -181,7 +181,18 @@ open class AgentStreamClient {
                         emitter(StreamEvent.WorkspaceChanged(path, change))
                     }
                 }
-                                "task_briefing", "conversation", "explanation" -> {
+                                "session_context" -> {
+                    val memSummary = json.optString("memorySummary").takeIf { it.isNotEmpty() }
+                        ?: json.optString("text", "")
+                    if (memSummary.isNotEmpty()) {
+                        emitter(StreamEvent.TaskBriefing(
+                            text = "🧠 Memory Context: $memSummary",
+                            stepId = json.optString("stepId").takeIf { it.isNotEmpty() },
+                            turn = if (json.has("turn")) json.optInt("turn") else null
+                        ))
+                    }
+                }
+                "task_briefing", "conversation", "explanation" -> {
                     val briefingText = json.optString("text").takeIf { it.isNotEmpty() }
                         ?: json.optString("message").takeIf { it.isNotEmpty() }
                         ?: json.optString("content", "")
