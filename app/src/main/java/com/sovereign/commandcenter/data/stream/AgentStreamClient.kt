@@ -181,9 +181,10 @@ open class AgentStreamClient {
                         emitter(StreamEvent.WorkspaceChanged(path, change))
                     }
                 }
-                                "task_briefing" -> {
+                                "task_briefing", "conversation", "explanation" -> {
                     val briefingText = json.optString("text").takeIf { it.isNotEmpty() }
-                        ?: json.optString("message", "")
+                        ?: json.optString("message").takeIf { it.isNotEmpty() }
+                        ?: json.optString("content", "")
                     if (briefingText.isNotEmpty()) {
                         emitter(StreamEvent.TaskBriefing(
                             text = briefingText,
@@ -192,9 +193,10 @@ open class AgentStreamClient {
                         ))
                     }
                 }
-                "step_summary" -> {
+                "step_summary", "agent_update" -> {
                     val sumText = json.optString("text").takeIf { it.isNotEmpty() }
-                        ?: json.optString("summary", "")
+                        ?: json.optString("summary").takeIf { it.isNotEmpty() }
+                        ?: json.optString("message", "")
                     if (sumText.isNotEmpty()) {
                         emitter(StreamEvent.StepSummary(
                             text = sumText,
