@@ -799,7 +799,15 @@ Start chatting to record history.""",
                                 item {
                                     FilterChip(
                                         selected = selectedRepo == "General Project",
-                                        onClick = { viewModel.selectRepository("General Project") },
+                                        onClick = {
+            if (selectedRepo == "General Project") {
+                viewModel.selectRepository(null)
+            } else {
+                onTriggerStepUp("General Project", "repository_access") {
+                    viewModel.selectRepository("General Project")
+                }
+            }
+        },
                                         label = { Text("⚡ General Project", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
                                         colors = FilterChipDefaults.filterChipColors(
                                             selectedContainerColor = SovereignAmber,
@@ -819,10 +827,15 @@ Start chatting to record history.""",
                                             1.dp,
                                             if (isSelected) SovereignAmberDark else SovereignAmber.copy(alpha = 0.35f)
                                         ),
-                                        modifier = Modifier.clickable {
-                                            if (isSelected) viewModel.selectRepository(null)
-                                            else viewModel.selectRepository(repo.name)
-                                        }
+                                                modifier = Modifier.clickable {
+            if (isSelected) {
+                viewModel.selectRepository(null)
+            } else {
+                onTriggerStepUp(repo.name, "repository_access") {
+                    viewModel.selectRepository(repo.name)
+                }
+            }
+        }
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1216,18 +1229,7 @@ fun WorkspaceContextBanner(
                 fontFamily = FontFamily.Monospace,
                 color = SovereignStone800
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = {
-                    onTriggerStepUp(selectedRepo ?: "Trinity Universe", "deploy_production") {}
-                },
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = SovereignAmberDark)
-            ) {
-                Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Trigger Biometric Step-Up", fontSize = 12.sp)
-            }
+
         }
     }
 }
