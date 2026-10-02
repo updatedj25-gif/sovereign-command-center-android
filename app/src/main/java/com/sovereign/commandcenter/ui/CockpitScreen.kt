@@ -681,6 +681,12 @@ Start chatting to record history.""",
                         selectedRepo = selectedRepo,
 
             // CEO One-Tap Security Authorization Gatecard (Phase 6)
+            
+            // Executive Voice Cadence Active Monitor (Phase 8)
+            val isAudioCadenceActive = viewModel.isAudioCadenceEnabled.value
+            if (isAudioCadenceActive) {
+                // Cadence Engine Active
+            }
             val activeCheckpoint = viewModel.activeCheckpoint.value
             if (activeCheckpoint != null) {
                 CeoAuthorizationGatecard(

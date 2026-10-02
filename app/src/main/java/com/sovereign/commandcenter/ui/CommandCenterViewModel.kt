@@ -106,6 +106,24 @@ data class CommandCenterUiState(
 class CommandCenterViewModel(
     private val streamClient: AgentStreamClient = AgentStreamClient()
 ) : ViewModel() {
+    private val _isAudioCadenceEnabled = androidx.compose.runtime.mutableStateOf(true)
+    val isAudioCadenceEnabled: androidx.compose.runtime.State<Boolean> get() = _isAudioCadenceEnabled
+
+    fun toggleAudioCadence(): Boolean {
+        _isAudioCadenceEnabled.value = !_isAudioCadenceEnabled.value
+        println("[Executive Audio] Cadence toggled: " + _isAudioCadenceEnabled.value)
+        return _isAudioCadenceEnabled.value
+    }
+
+    fun speakExecutiveCadence(text: String) {
+        if (_isAudioCadenceEnabled.value) {
+            val clean = ExecutiveAudioCadenceEngine.sanitizeForExecutiveVoice(text)
+            if (clean.isNotEmpty()) {
+                println("[Executive Cadence Speech] " + clean)
+            }
+        }
+    }
+
     private val _activeCheckpoint = androidx.compose.runtime.mutableStateOf<AuthorizationCheckpoint?>(null)
     val activeCheckpoint: androidx.compose.runtime.State<AuthorizationCheckpoint?> get() = _activeCheckpoint
 
