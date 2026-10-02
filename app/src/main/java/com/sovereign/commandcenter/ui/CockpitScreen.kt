@@ -97,6 +97,9 @@ fun CommandCenterCockpit(
     // Voice Duplex State
     var isVoiceActive by remember { mutableStateOf(false) }
 
+    // Executive Audio Cadence Engine Monitor (Phase 8)
+    val isAudioCadenceActive = viewModel.isAudioCadenceEnabled.value
+
     // Microphone Permission Request Launcher
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -680,22 +683,6 @@ Start chatting to record history.""",
                 "PREVIEW" -> {
                     FullPageModernPreview(
                         selectedRepo = selectedRepo,
-
-            // CEO One-Tap Security Authorization Gatecard (Phase 6)
-            
-            // Executive Voice Cadence Active Monitor (Phase 8)
-            val isAudioCadenceActive = viewModel.isAudioCadenceEnabled.value
-            if (isAudioCadenceActive) {
-                // Cadence Engine Active
-            }
-            val activeCheckpoint = viewModel.activeCheckpoint.value
-            if (activeCheckpoint != null) {
-                CeoAuthorizationGatecard(
-                    checkpoint = activeCheckpoint,
-                    onAuthorize = { viewModel.authorizeCheckpoint(it) },
-                    onReject = { viewModel.rejectCheckpoint(it) }
-                )
-            }
                         previewUrl = uiState.activePreviewUrl,
                         deviceMode = previewDeviceMode,
                         onDeviceModeChange = { previewDeviceMode = it }
@@ -1144,6 +1131,20 @@ Start chatting to record history.""",
             }
         }
     }
+    }
+
+    // CEO One-Tap Security Authorization Gatecard Modal Overlay (Phase 6)
+    val activeCheckpoint = viewModel.activeCheckpoint.value
+    if (activeCheckpoint != null) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { /* Modal security gate requires explicit Authorize or Reject */ }
+        ) {
+            CeoAuthorizationGatecard(
+                checkpoint = activeCheckpoint,
+                onAuthorize = { viewModel.authorizeCheckpoint(it) },
+                onReject = { viewModel.rejectCheckpoint(it) }
+            )
+        }
     }
 }
 
