@@ -99,6 +99,7 @@ data class CommandCenterUiState(
     val repoTree: List<RepoTreeEntry> = emptyList(),
     val isTreeLoading: Boolean = false,
     val treeError: String? = null,
+    val activePreviewUrl: String? = null,
     val chatHistory: List<ChatSessionHistoryItem> = emptyList()
 )
 
@@ -378,6 +379,14 @@ class CommandCenterViewModel(
                 }
 
                 when (event) {
+                    is StreamEvent.PreviewReady -> {
+                        val fullUrl = if (event.previewUrl.startsWith("http")) event.previewUrl else "${ApiClient.baseUrl}${event.previewUrl}"
+                        _uiState.update { it.copy(activePreviewUrl = fullUrl) }
+                        appendAssistantChatBubble("🚀 Live Web Preview is ready: $fullUrl")
+                    }
+                    is StreamEvent.WorkspaceChanged -> {
+                        onWorkspaceChanged(event.path, event.change)
+                    }
                     is StreamEvent.TaskBriefing -> {
                         // Dynamic discussion briefing appears as an authentic chat bubble
                         appendAssistantChatBubble(event.text)
@@ -709,6 +718,38 @@ class CommandCenterViewModel(
     }
 
         private var activeTreeJob: Job? = null
+
+    /**
+     * Reactively mutates repoTree in-memory when files are written, edited, or deleted.
+     * Operates with 0 latency like VS Code without network re-fetching.
+     */
+    fun onWorkspaceChanged(path: String, change: String) {
+        if (path.isBlank()) return
+        _uiState.update { current ->
+            val existing = current.repoTree.toMutableList()
+            val idx = existing.indexOfFirst { it.path == path }
+            if (change.equals("deleted", ignoreCase = true)) {
+                if (idx >= 0) existing.removeAt(idx)
+            } else {
+                if (idx >= 0) {
+                    val old = existing[idx]
+                    existing[idx] = old.copy(sha = "mod-${System.currentTimeMillis()}")
+                } else {
+                    existing.add(
+                        RepoTreeEntry(
+                            path = path,
+                            mode = "100644",
+                            type = "blob",
+                            size = 0L,
+                            sha = "live-write"
+                        )
+                    )
+                    existing.sortBy { it.path }
+                }
+            }
+            current.copy(repoTree = existing)
+        }
+    }
 
     fun loadRepoTree(rawRepo: String?, branch: String = _uiState.value.selectedBranch) {
         activeTreeJob?.cancel()

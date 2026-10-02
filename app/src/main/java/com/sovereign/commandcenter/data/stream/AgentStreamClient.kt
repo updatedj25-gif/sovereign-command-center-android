@@ -17,6 +17,8 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 
 sealed class StreamEvent {
+    data class PreviewReady(val previewUrl: String) : StreamEvent()
+    data class WorkspaceChanged(val path: String, val change: String) : StreamEvent()
     data class TaskBriefing(val text: String, val stepId: String? = null, val turn: Int? = null) : StreamEvent()
     data class StepSummary(val text: String, val stepId: String? = null, val turn: Int? = null) : StreamEvent()
     data class TaskCorrection(val stepId: String?, val task: String?, val output: String?, val correction: String?) : StreamEvent()
@@ -165,6 +167,20 @@ open class AgentStreamClient {
         try {
             val json = JSONObject(jsonStr)
             when (json.optString("type")) {
+                "preview_ready" -> {
+                    val url = json.optString("previewUrl").takeIf { it.isNotEmpty() }
+                        ?: json.optString("url", "")
+                    if (url.isNotEmpty()) {
+                        emitter(StreamEvent.PreviewReady(url))
+                    }
+                }
+                "workspace_changed" -> {
+                    val path = json.optString("path", "")
+                    val change = json.optString("change", "created")
+                    if (path.isNotEmpty()) {
+                        emitter(StreamEvent.WorkspaceChanged(path, change))
+                    }
+                }
                                 "task_briefing" -> {
                     val briefingText = json.optString("text").takeIf { it.isNotEmpty() }
                         ?: json.optString("message", "")

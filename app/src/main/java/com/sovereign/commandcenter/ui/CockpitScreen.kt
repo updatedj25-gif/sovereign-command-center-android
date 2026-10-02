@@ -1,3 +1,7 @@
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.view.ViewGroup
+import androidx.compose.ui.viewinterop.AndroidView
 package com.sovereign.commandcenter.ui
 import android.Manifest
 import android.content.pm.PackageManager
@@ -675,6 +679,7 @@ Start chatting to record history.""",
                 "PREVIEW" -> {
                     FullPageModernPreview(
                         selectedRepo = selectedRepo,
+                        previewUrl = uiState.activePreviewUrl,
                         deviceMode = previewDeviceMode,
                         onDeviceModeChange = { previewDeviceMode = it }
                     )
@@ -2184,6 +2189,7 @@ fun FullPageVsCodeExplorer(
 @Composable
 fun FullPageModernPreview(
     selectedRepo: String?,
+    previewUrl: String? = null,
     deviceMode: String,
     onDeviceModeChange: (String) -> Unit
 ) {
@@ -2216,7 +2222,7 @@ fun FullPageModernPreview(
                             Text("🔒", fontSize = 11.sp)
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "http://localhost:5173",
+                                text = previewUrl ?: "http://localhost:5173",
                                 fontSize = 12.sp,
                                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                                 color = SovereignStone900
@@ -2262,6 +2268,30 @@ fun FullPageModernPreview(
                 shadowElevation = 8.dp,
                 border = BorderStroke(2.dp, SovereignStone800.copy(alpha = 0.15f))
             ) {
+                if (!previewUrl.isNullOrBlank()) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { context ->
+                            WebView(context).apply {
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                settings.loadWithOverviewMode = true
+                                settings.useWideViewPort = true
+                                webViewClient = WebViewClient()
+                                loadUrl(previewUrl)
+                            }
+                        },
+                        update = { webView ->
+                            if (webView.url != previewUrl) {
+                                webView.loadUrl(previewUrl)
+                            }
+                        }
+                    )
+                } else {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
