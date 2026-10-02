@@ -106,6 +106,23 @@ data class CommandCenterUiState(
 class CommandCenterViewModel(
     private val streamClient: AgentStreamClient = AgentStreamClient()
 ) : ViewModel() {
+    private val _activeCheckpoint = androidx.compose.runtime.mutableStateOf<AuthorizationCheckpoint?>(null)
+    val activeCheckpoint: androidx.compose.runtime.State<AuthorizationCheckpoint?> get() = _activeCheckpoint
+
+    fun requestAuthorization(checkpoint: AuthorizationCheckpoint) {
+        _activeCheckpoint.value = checkpoint
+    }
+
+    fun authorizeCheckpoint(checkpointId: String) {
+        _activeCheckpoint.value = _activeCheckpoint.value?.copy(status = CheckpointStatus.AUTHORIZED)
+        println("[CEO Auth] Checkpoint $checkpointId AUTHORIZED by Adebola James Ogunjimi")
+    }
+
+    fun rejectCheckpoint(checkpointId: String) {
+        _activeCheckpoint.value = _activeCheckpoint.value?.copy(status = CheckpointStatus.REJECTED)
+        println("[CEO Auth] Checkpoint $checkpointId REJECTED by Adebola James Ogunjimi")
+    }
+
 
     // =========================================================================
     // GROUP 4: SEQUENTIAL STEP ACCORDION RUNTIME & VM DIGNITY ERROR INTERCEPT

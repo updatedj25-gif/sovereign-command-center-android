@@ -679,6 +679,16 @@ Start chatting to record history.""",
                 "PREVIEW" -> {
                     FullPageModernPreview(
                         selectedRepo = selectedRepo,
+
+            // CEO One-Tap Security Authorization Gatecard (Phase 6)
+            val activeCheckpoint = viewModel.activeCheckpoint.value
+            if (activeCheckpoint != null) {
+                CeoAuthorizationGatecard(
+                    checkpoint = activeCheckpoint,
+                    onAuthorize = { viewModel.authorizeCheckpoint(it) },
+                    onReject = { viewModel.rejectCheckpoint(it) }
+                )
+            }
                         previewUrl = uiState.activePreviewUrl,
                         deviceMode = previewDeviceMode,
                         onDeviceModeChange = { previewDeviceMode = it }
@@ -2341,4 +2351,6 @@ fun FullPageModernPreview(
             }
         }
     }
+}
+
 }

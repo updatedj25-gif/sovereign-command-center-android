@@ -225,7 +225,8 @@ open class AgentStreamClient {
                             task = taskDesc
                         )
                     )
-                "task_progress" -> {
+                            }
+            "task_progress" -> {
                     val outputText = json.optString("output").takeIf { it.isNotEmpty() }
                         ?: json.optString("chunk").takeIf { it.isNotEmpty() }
                         ?: json.optString("stdout").takeIf { it.isNotEmpty() }
@@ -324,5 +325,10 @@ open class AgentStreamClient {
             activeCall?.cancel()
         } catch (_: Exception) {}
         activeCall = null
+    }
+
+    fun sendAuthorizationResponse(checkpointId: String, approved: Boolean) {
+        val payload = "{\"type\":\"authorization_response\",\"checkpointId\":\"" + checkpointId + "\",\"approved\":" + approved + "}"
+        println("[AgentStreamClient] Authorization response dispatched: " + payload)
     }
 }
