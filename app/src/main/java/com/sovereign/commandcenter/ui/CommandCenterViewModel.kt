@@ -304,9 +304,251 @@ class CommandCenterViewModel(
         _uiState.update {
             it.copy(
                 selectedRepository = repo,
-                contextVersion = newVersion
+                contextVersion = newVersion,
+                isStreaming = false
             )
         }
+        loadRepoTree(repo)
+    }
+
+    fun sendMessage(prompt: String) {
+        val trimmed = prompt.trim()
+        if (trimmed.isEmpty()) return
+        cancelActiveStream()
+
+        val state = _uiState.value
+        val userMsg = ChatMessage(
+            role = "user",
+            content = trimmed,
+            repositoryContext = state.selectedRepository
+        )
+        val assistantPlaceholderId = UUID.randomUUID().toString()
+        val initialAssistantMsg = ChatMessage(
+            id = assistantPlaceholderId,
+            role = "assistant",
+            content = "",
+            repositoryContext = state.selectedRepository
+        )
+
+        _uiState.value = state.copy(
+            chatMessages = state.chatMessages + userMsg + initialAssistantMsg,
+            isStreaming = true,
+            errorMessage = null
+        )
+
+        val context = StreamRequestContext(
+            prompt = trimmed,
+            sessionId = state.session?.ownerId ?: "ceo-command-session",
+            repositoryId = state.selectedRepository,
+            branch = state.selectedBranch,
+            environment = state.selectedEnvironment,
+            workspaceContextVersion = state.contextVersion
+        )
+
+        val historyPairs = state.chatMessages.map { it.role to it.content }
+
+        activeStreamJob = viewModelScope.launch {
+            streamClient.streamPrompt(context, historyPairs).collect { event ->
+                if (_uiState.value.contextVersion != context.workspaceContextVersion) {
+                    return@collect
+                }
+
+                when (event) {
+                    is StreamEvent.ContentChunk -> {
+                        appendAssistantContent(assistantPlaceholderId, event.content)
+                    }
+                    is StreamEvent.ApprovalRequired -> {
+                        _uiState.value = _uiState.value.copy(
+                            pendingApproval = PendingApprovalData(
+                                approvalId = event.approvalId,
+                                tool = event.tool,
+                                dangerReason = event.dangerReason,
+                                repository = state.selectedRepository
+                            )
+                        )
+                    }
+                    is StreamEvent.ApprovalGranted -> {
+                        appendAssistantContent(assistantPlaceholderId, "\n\n[✓ Action authorized by CEO: ${event.tool}]")
+                        _uiState.value = _uiState.value.copy(pendingApproval = null)
+                    }
+                    is StreamEvent.TaskFailed -> {
+                        applyVmDignityErrorFreeze(
+                            failedStepTitle = event.task ?: "Task Step",
+                            errorTrace = event.summary,
+                            completedCount = 0,
+                            totalCount = 1
+                        )
+                    }
+                    is StreamEvent.SessionConflict -> {
+                        appendAssistantContent(assistantPlaceholderId, "\n\n[⚠ Session Conflict: ${event.message}]")
+                    }
+                    is StreamEvent.Error -> {
+                        appendAssistantContent(assistantPlaceholderId, "\n\n[Error: ${event.error}]")
+                        _uiState.value = _uiState.value.copy(isStreaming = false)
+                    }
+                    is StreamEvent.Completed -> {
+                        finalizeActiveSteps(assistantPlaceholderId)
+                        _uiState.value = _uiState.value.copy(isStreaming = false)
+                        val assistantMsg = _uiState.value.chatMessages.find { it.id == assistantPlaceholderId }?.content ?: ""
+                        if (assistantMsg.isNotBlank()) {
+                            speakSanitizedResponse(assistantMsg)
+                        }
+                    }
+                    is StreamEvent.TaskRunning -> {
+                        _uiState.value = _uiState.value.copy(
+                            errorMessage = null,
+                            pendingApproval = null,
+                            isStreaming = true
+                        )
+                        recordTaskRunning(
+                            messageId = assistantPlaceholderId,
+                            tool = event.tool,
+                            stepId = event.stepId,
+                            turn = event.turn,
+                            taskDesc = event.task
+                        )
+                    }
+                    is StreamEvent.TaskProgress -> {
+                        recordTaskProgress(
+                            messageId = assistantPlaceholderId,
+                            tool = event.tool,
+                            output = event.output,
+                            stepId = event.stepId
+                        )
+                    }
+                    is StreamEvent.TaskCompleted -> {
+                        recordTaskCompleted(
+                            messageId = assistantPlaceholderId,
+                            tool = event.tool,
+                            stepId = event.stepId,
+                            summary = event.summary
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun recordTaskRunning(
+        messageId: String,
+        tool: String,
+        stepId: String?,
+        turn: Int?,
+        taskDesc: String?
+    ) {
+        val effectiveId = stepId ?: "step-${turn ?: System.currentTimeMillis()}"
+        val desc = taskDesc ?: "Executing tool: $tool"
+        _uiState.update { current ->
+            val updated = current.chatMessages.map { msg ->
+                if (msg.id == messageId) {
+                    val existingSteps = msg.pacedSteps
+                    val existingIdx = existingSteps.indexOfFirst { it.stepId == effectiveId }
+                    val currentTurn = turn ?: (existingSteps.size + 1)
+                    val totalEst = maxOf(currentTurn, existingSteps.size + 1)
+
+                    val updatedSteps = if (existingIdx >= 0) {
+                        existingSteps.toMutableList().also { list ->
+                            val existing = list[existingIdx]
+                            list[existingIdx] = existing.copy(
+                                actionCard = existing.actionCard.copy(
+                                    tool = tool,
+                                    description = desc,
+                                    status = "RUNNING"
+                                )
+                            )
+                        }
+                    } else {
+                        val resolved = existingSteps.map { st ->
+                            if (st.actionCard.status.equals("RUNNING", ignoreCase = true)) {
+                                st.copy(actionCard = st.actionCard.copy(status = "COMPLETED"))
+                            } else st
+                        }
+                        val newStep = PacedStepData(
+                            stepIndex = currentTurn,
+                            totalSteps = totalEst,
+                            conversationalPrelude = "Action Execution",
+                            actionCard = ActionCardData(tool = tool, description = desc, status = "RUNNING"),
+                            stepId = effectiveId
+                        )
+                        resolved + newStep
+                    }
+                    msg.copy(pacedSteps = updatedSteps)
+                } else msg
+            }
+            current.copy(chatMessages = updated)
+        }
+    }
+
+    private fun recordTaskProgress(messageId: String, tool: String, output: String, stepId: String?) {
+        if (output.isBlank()) return
+        _uiState.update { current ->
+            val updated = current.chatMessages.map { msg ->
+                if (msg.id == messageId && msg.pacedSteps.isNotEmpty()) {
+                    val steps = msg.pacedSteps.toMutableList()
+                    val targetIdx = if (!stepId.isNullOrEmpty()) {
+                        steps.indexOfFirst { it.stepId == stepId }
+                    } else {
+                        steps.indexOfLast { it.actionCard.status.equals("RUNNING", ignoreCase = true) }
+                    }
+                    if (targetIdx >= 0) {
+                        val target = steps[targetIdx]
+                        steps[targetIdx] = target.copy(output = target.output + output)
+                    }
+                    msg.copy(pacedSteps = steps)
+                } else msg
+            }
+            current.copy(chatMessages = updated)
+        }
+    }
+
+    private fun recordTaskCompleted(messageId: String, tool: String, stepId: String?, summary: String?) {
+        _uiState.update { current ->
+            val updated = current.chatMessages.map { msg ->
+                if (msg.id == messageId && msg.pacedSteps.isNotEmpty()) {
+                    val steps = msg.pacedSteps.map { st ->
+                        val matches = (stepId != null && st.stepId == stepId) ||
+                                      (stepId == null && st.actionCard.status.equals("RUNNING", ignoreCase = true))
+                        if (matches) {
+                            st.copy(
+                                actionCard = st.actionCard.copy(
+                                    status = "COMPLETED",
+                                    description = summary ?: st.actionCard.description
+                                )
+                            )
+                        } else st
+                    }
+                    msg.copy(pacedSteps = steps)
+                } else msg
+            }
+            current.copy(chatMessages = updated)
+        }
+    }
+
+    private fun finalizeActiveSteps(messageId: String) {
+        _uiState.update { current ->
+            val updated = current.chatMessages.map { msg ->
+                if (msg.id == messageId && msg.pacedSteps.isNotEmpty()) {
+                    val steps = msg.pacedSteps.map { st ->
+                        if (st.actionCard.status.equals("RUNNING", ignoreCase = true)) {
+                            st.copy(actionCard = st.actionCard.copy(status = "COMPLETED"))
+                        } else st
+                    }
+                    msg.copy(pacedSteps = steps)
+                } else msg
+            }
+            current.copy(chatMessages = updated)
+        }
+    }
+
+    private fun appendAssistantContent(messageId: String, textToAppend: String) {
+        val updated = _uiState.value.chatMessages.map { msg ->
+            if (msg.id == messageId) {
+                msg.copy(content = msg.content + textToAppend)
+            } else {
+                msg
+            }
+        }
+        _uiState.value = _uiState.value.copy(chatMessages = updated)
     }
 
     fun submitApproval(approved: Boolean, reason: String? = null) {
