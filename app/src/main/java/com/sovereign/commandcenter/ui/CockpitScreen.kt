@@ -1,8 +1,9 @@
+package com.sovereign.commandcenter.ui
+
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.view.ViewGroup
 import androidx.compose.ui.viewinterop.AndroidView
-package com.sovereign.commandcenter.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
