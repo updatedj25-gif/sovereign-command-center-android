@@ -297,6 +297,30 @@ class CommandCenterViewModel(
         _uiState.value = CommandCenterUiState()
     }
 
+    /**
+     * Starts a completely neutral new project chat session for the CEO.
+     * Clears previous conversational history, generates a clean session ID,
+     * and resets repository scope without context contamination or credential leakage.
+     */
+    fun startNewProject() {
+        cancelActiveStream()
+        val newSessionId = "ceo-neutral-" + java.util.UUID.randomUUID().toString().take(8)
+        val newVersion = _uiState.value.contextVersion + 1
+        _uiState.update {
+            it.copy(
+                selectedRepository = null,
+                chatMessages = emptyList(),
+                contextVersion = newVersion,
+                isStreaming = false,
+                errorMessage = null,
+                pendingApproval = null,
+                repoTree = emptyList(),
+                isTreeLoading = false,
+                treeError = null
+            )
+        }
+    }
+
     fun selectRepository(repo: String?) {
         if (_uiState.value.selectedRepository == repo) return
         cancelActiveStream()

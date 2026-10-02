@@ -778,7 +778,7 @@ Start chatting to record history.""",
                                             1.dp,
                                             if (isGlobalSelected) SovereignAmberDark else SovereignAmber.copy(alpha = 0.35f)
                                         ),
-                                        modifier = Modifier.clickable { viewModel.selectRepository(null) }
+                                        modifier = Modifier.clickable { viewModel.startNewProject() }
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -801,7 +801,7 @@ Start chatting to record history.""",
                                         selected = selectedRepo == "General Project",
                                         onClick = {
             if (selectedRepo == "General Project") {
-                viewModel.selectRepository(null)
+                viewModel.startNewProject()
             } else {
                 onTriggerStepUp("General Project", "repository_access") {
                     viewModel.selectRepository("General Project")
@@ -1489,6 +1489,11 @@ fun PacedStepItemRow(
                     }
                 }
 
+                if (step.output.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    RichDiffViewer(rawText = step.output)
+                }
+
                 step.selfHealingTrace?.let { trace ->
                     Spacer(modifier = Modifier.height(6.dp))
                     Surface(
@@ -1514,6 +1519,90 @@ fun PacedStepItemRow(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun RichDiffViewer(
+    rawText: String,
+    modifier: Modifier = Modifier
+) {
+    if (rawText.isBlank()) return
+
+    val lines = remember(rawText) { rawText.lines() }
+    val isDiff = remember(rawText) {
+        lines.any { it.startsWith("+") || it.startsWith("-") || it.startsWith("@@") || it.startsWith("diff --git") }
+    }
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = if (isDiff) Color(0xFF0F172A) else Color(0xFF1E293B),
+        border = BorderStroke(1.dp, Color(0xFF334155)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (isDiff) "UNIFIED DIFF TELEMETRY" else "EXECUTION OUTPUT",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isDiff) SovereignAmber else Color(0xFF94A3B8)
+                )
+                Text(
+                    text = "${lines.size} lines",
+                    fontSize = 9.sp,
+                    color = Color(0xFF64748B)
+                )
+            }
+
+            lines.take(80).forEachIndexed { idx, line ->
+                val (bgColor, textColor, prefix) = when {
+                    line.startsWith("+++") || line.startsWith("---") -> Triple(Color(0xFF1E293B), Color(0xFF93C5FD), "")
+                    line.startsWith("@@") -> Triple(Color(0xFF1E293B).copy(alpha = 0.8f), SovereignAmber, "")
+                    line.startsWith("+") -> Triple(Color(0x3310B981), Color(0xFF34D399), "+ ")
+                    line.startsWith("-") -> Triple(Color(0x33EF4444), Color(0xFFF87171), "- ")
+                    else -> Triple(Color.Transparent, Color(0xFFCBD5E1), "  ")
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(bgColor, shape = RoundedCornerShape(2.dp))
+                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${idx + 1}".padStart(3, ' '),
+                        fontSize = 10.sp,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        color = Color(0xFF475569),
+                        modifier = Modifier.width(28.dp)
+                    )
+                    Text(
+                        text = line,
+                        fontSize = 11.sp,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        color = textColor,
+                        lineHeight = 15.sp,
+                        maxLines = 4
+                    )
+                }
+            }
+
+            if (lines.size > 80) {
+                Text(
+                    text = "... [${lines.size - 80} more lines compacted] ...",
+                    fontSize = 10.sp,
+                    color = Color(0xFF64748B),
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
         }
     }
