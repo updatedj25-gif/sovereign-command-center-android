@@ -177,7 +177,58 @@ fun CommandCenterCockpit(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // EXECUTIVE MESSAGE MENU / DAILY AUDIT INBOX (AHEAD OF NEW CHAT)
+                                        // TOP OF SIDEBAR: CEO USA SMS HUB COMMAND DECK
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                scope.launch { drawerState.close() }
+                                activeTab = "SMS"
+                            },
+                        color = Color(0xFF1E293B),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFFFFD700).copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("📱", fontSize = 20.sp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "USA SMS HUB",
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        fontSize = 14.sp
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        color = Color(0xFF00E676).copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            "USA ONLY ⚜️",
+                                            color = Color(0xFF00E676),
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    "Non-VoIP Meta & Telegram (+1)",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+// EXECUTIVE MESSAGE MENU / DAILY AUDIT INBOX (AHEAD OF NEW CHAT)
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -668,6 +719,12 @@ Start chatting to record history.""",
             val isTablet = maxWidth >= 720.dp
 
             when (activeTab) {
+                "SMS" -> {
+                    UsaSmsHubScreen(
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
                 "FILES" -> {
                     FullPageVsCodeExplorer(
                         selectedRepo = selectedRepo,
