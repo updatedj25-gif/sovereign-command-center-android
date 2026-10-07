@@ -182,7 +182,7 @@ fun CommandCenterCockpit(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                scope.launch { drawerState.close() }
+                                coroutineScope.launch { drawerState.close() }
                                 activeTab = "SMS"
                             },
                         color = Color(0xFF1E293B),
