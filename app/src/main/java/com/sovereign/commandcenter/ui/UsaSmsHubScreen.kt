@@ -189,7 +189,7 @@ fun UsaSmsHubScreen(
                                     conn.requestMethod = "GET"
                                     conn.connectTimeout = 5000
                                     conn.readTimeout = 5000
-                                                    val stream = if (conn.responseCode in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+                                    val stream = if (conn.responseCode in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
                                                     val reader = BufferedReader(InputStreamReader(stream))
                                     val json = JSONObject(reader.readText())
                                     reader.close()
@@ -248,7 +248,7 @@ fun UsaSmsHubScreen(
                                             val pool = withContext(Dispatchers.IO) {
                                                 val conn = URL("$edgeBaseUrl/api/sms/batch?service=${svc.id}").openConnection() as HttpURLConnection
                                                 conn.requestMethod = "GET"
-                                                    val stream = if (conn.responseCode in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+                                                val stream = if (conn.responseCode in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
                                                     val reader = BufferedReader(InputStreamReader(stream))
                                                 val json = JSONObject(reader.readText())
                                                 reader.close()
@@ -408,6 +408,7 @@ fun UsaSmsHubScreen(
                                                 }
                                                 val realOid = leaseResult.optString("order_id", "")
                                                 val realNumber = leaseResult.optString("number", leaseResult.optString("displayNumber", ""))
+                                                val carrierErr = leaseResult.optString("error", "")
                                                 if (realOid.isNotEmpty()) {
                                                     activeOrderId = realOid
                                                 }
@@ -415,14 +416,11 @@ fun UsaSmsHubScreen(
                                                     activeOrderNumber = realNumber
                                                     copyToClipboard("US Number", realNumber)
                                                     Toast.makeText(context, "Live Number Allocated: " + realNumber, Toast.LENGTH_SHORT).show()
+                                                } else if (carrierErr.isNotEmpty()) {
+                                                    Toast.makeText(context, "Carrier: " + carrierErr, Toast.LENGTH_LONG).show()
                                                 }
                                             } catch (e: Exception) {
-                                                val err = leaseResult.optString("error", "")
-                                                if (err.isNotEmpty()) {
-                                                    Toast.makeText(context, "Carrier: " + err, Toast.LENGTH_LONG).show()
-                                                } else {
-                                                    Toast.makeText(context, "Order active: listening for OTP", Toast.LENGTH_SHORT).show()
-                                                }
+                                                Toast.makeText(context, "Order active: listening for OTP", Toast.LENGTH_SHORT).show()
                                             }
                                             }
                                         },
@@ -579,16 +577,16 @@ fun UsaSmsHubScreen(
                                     isCheckingOtp = true
                                     otpDebounceSeconds = 5
                                     coroutineScope.launch {
+                                        val oid = activeOrderId ?: ""
+                                        if (oid.isEmpty()) {
+                                            Toast.makeText(context, "Please select an active line first", Toast.LENGTH_SHORT).show()
+                                            return@launch
+                                        }
                                         try {
                                             val code = withContext(Dispatchers.IO) {
-                                                val oid = activeOrderId ?: ""
-                                                if (oid.isEmpty()) {
-                                                    Toast.makeText(context, "Please select an active line first", Toast.LENGTH_SHORT).show()
-                                                    return@launch
-                                                }
                                                 val conn = URL("$edgeBaseUrl/api/sms/check?orderid=$oid").openConnection() as HttpURLConnection
                                                 conn.requestMethod = "GET"
-                                                    val stream = if (conn.responseCode in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+                                                val stream = if (conn.responseCode in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
                                                     val reader = BufferedReader(InputStreamReader(stream))
                                                 val json = JSONObject(reader.readText())
                                                 reader.close()
@@ -635,11 +633,7 @@ fun UsaSmsHubScreen(
                                 coroutineScope.launch {
                                     try {
                                         withContext(Dispatchers.IO) {
-                                                val oid = activeOrderId ?: ""
-                                                if (oid.isEmpty()) {
-                                                    Toast.makeText(context, "Please select an active line first", Toast.LENGTH_SHORT).show()
-                                                    return@launch
-                                                }
+                                            val oid = activeOrderId ?: ""
                                             val conn = URL("$edgeBaseUrl/api/sms/cancel").openConnection() as HttpURLConnection
                                             conn.requestMethod = "POST"
                                             conn.setRequestProperty("Content-Type", "application/json")
