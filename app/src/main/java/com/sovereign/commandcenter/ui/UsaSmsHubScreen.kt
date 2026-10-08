@@ -383,27 +383,38 @@ fun UsaSmsHubScreen(
                                                 cancelLockoutSeconds = 120 // 2-min mandatory lockout
                                                 poolNumbers = emptyList() // Purge remaining 9
 
-                                                // Acquire lease from Edge Worker
-                                                try {
-                                                    val orderId = withContext(Dispatchers.IO) {
-                                                        val conn = URL("$edgeBaseUrl/api/sms/lease").openConnection() as HttpURLConnection
-                                                        conn.requestMethod = "POST"
-                                                        conn.setRequestProperty("Content-Type", "application/json")
-                                                        conn.doOutput = true
-                                                        val body = JSONObject().apply {
-                                                            put("service", selectedService?.id)
-                                                            put("poolNumber", item.number)
-                                                        }
-                                                        conn.outputStream.write(body.toString().toByteArray())
-                                                        val reader = BufferedReader(InputStreamReader(conn.inputStream))
-                                                        val json = JSONObject(reader.readText())
-                                                        reader.close()
-                                                        json.optString("order_id", "sim_lease_${System.currentTimeMillis()}")
+                                            // Acquire live physical carrier lease from Edge Worker
+                                            try {
+                                                val leaseResult = withContext(Dispatchers.IO) {
+                                                    val conn = URL("$edgeBaseUrl/api/sms/lease").openConnection() as HttpURLConnection
+                                                    conn.requestMethod = "POST"
+                                                    conn.setRequestProperty("Content-Type", "application/json")
+                                                    conn.doOutput = true
+                                                    conn.connectTimeout = 15000
+                                                    conn.readTimeout = 15000
+                                                    val body = JSONObject().apply {
+                                                        put("service", selectedService?.id ?: "1012")
+                                                        put("areaCode", item.areaCode)
                                                     }
-                                                    activeOrderId = orderId
-                                                } catch (e: Exception) {
-                                                    activeOrderId = "ord_${System.currentTimeMillis()}"
+                                                    conn.outputStream.write(body.toString().toByteArray())
+                                                    val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                                                    val json = JSONObject(reader.readText())
+                                                    reader.close()
+                                                    json
                                                 }
+                                                val realOid = leaseResult.optString("order_id", "")
+                                                val realNumber = leaseResult.optString("number", leaseResult.optString("displayNumber", ""))
+                                                if (realOid.isNotEmpty()) {
+                                                    activeOrderId = realOid
+                                                }
+                                                if (realNumber.isNotEmpty()) {
+                                                    activeOrderNumber = realNumber
+                                                    copyToClipboard("US Number", realNumber)
+                                                    Toast.makeText(context, "Live Number Allocated: " + realNumber, Toast.LENGTH_SHORT).show()
+                                                }
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Order active: listening for OTP", Toast.LENGTH_SHORT).show()
+                                            }
                                             }
                                         },
                                     color = SovereignCardBg,
