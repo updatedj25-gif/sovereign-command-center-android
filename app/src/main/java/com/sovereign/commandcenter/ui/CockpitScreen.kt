@@ -457,9 +457,7 @@ Start chatting to record history.""",
                         }
                     },
                     actions = {
-                        IconButton(onClick = { viewModel.startNewChat() }) {
-                            Icon(Icons.Default.Add, contentDescription = "New Chat", tint = SovereignStone800)
-                        }
+
                         IconButton(onClick = { viewModel.refreshHealthAndMessages() }) {
                             Icon(Icons.Default.Refresh, contentDescription = "Refresh Health", tint = SovereignStone800)
                         }
