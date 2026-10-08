@@ -9,6 +9,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -129,9 +131,11 @@ fun UsaSmsHubScreen(
         modifier = modifier.fillMaxSize(),
         color = SovereignNavy
     ) {
+        val scrollState = rememberScrollState()
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(scrollState)
                 .padding(16.dp)
         ) {
             // TOP HEADER: Title & Top-Right Manual Balance Trigger
@@ -362,11 +366,11 @@ fun UsaSmsHubScreen(
                             Text("⚡ Streaming 10 physical USA lines...", color = SovereignGold, fontSize = 13.sp)
                         }
                     } else {
-                        LazyColumn(
+                        Column(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            items(poolNumbers) { item ->
+                            poolNumbers.forEach { item ->
                                 Surface(
                                     modifier = Modifier
                                         .fillMaxWidth()
