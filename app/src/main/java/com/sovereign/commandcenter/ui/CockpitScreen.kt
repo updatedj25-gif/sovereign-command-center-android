@@ -476,9 +476,10 @@ Start chatting to record history.""",
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = SovereignCreamDarker)
                 )
 
-                // SECONDARY NAVIGATION BAR: [CHAT] | [FILES] | [PREVIEW]
-                val isChatActive = (activeTab == "CHAT")
-                Row(
+                // SECONDARY NAVIGATION BAR: [CHAT] | [FILES] | [PREVIEW] (Hidden on USA SMS HUB)
+                if (activeTab != "SMS") {
+                    val isChatActive = (activeTab == "CHAT")
+                    Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -559,6 +560,7 @@ Start chatting to record history.""",
                             Text("Preview", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SovereignStone900)
                         }
                     }
+                }
                 }
             }
         },
