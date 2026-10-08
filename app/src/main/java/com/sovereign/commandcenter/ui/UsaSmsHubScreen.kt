@@ -377,7 +377,7 @@ fun UsaSmsHubScreen(
                                         .clickable {
                                             // CEO One-Tap Selection
                                             coroutineScope.launch {
-                                                copyToClipboard("US Number", item.displayNumber)
+                                                copyToClipboard("US Number", formatUsNumber(item.displayNumber.ifEmpty { item.raw_number }))
                                                 activeOrderNumber = item.displayNumber
                                                 activeStateBadge = item.state
                                                 cancelLockoutSeconds = 120 // 2-min mandatory lockout
@@ -660,5 +660,16 @@ fun UsaSmsHubScreen(
                 }
             }
         }
+    }
+}
+
+
+private fun formatUsNumber(raw: String): String {
+    val digits = raw.filter { it.isDigit() }
+    val pure = if (digits.length == 11 && digits.startsWith("1")) digits.substring(1) else digits
+    return if (pure.length == 10) {
+        "+1 (${pure.substring(0, 3)}) ${pure.substring(3, 6)}-${pure.substring(6)}"
+    } else {
+        raw
     }
 }
