@@ -375,15 +375,15 @@ fun UsaSmsHubScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            // CEO One-Tap Selection
-                                            coroutineScope.launch {
-                                                copyToClipboard("US Number", formatUsNumber(item.displayNumber.ifEmpty { item.raw_number }))
-                                                activeOrderNumber = item.displayNumber
-                                                activeStateBadge = item.state
-                                                cancelLockoutSeconds = 120 // 2-min mandatory lockout
-                                                poolNumbers = emptyList() // Purge remaining 9
+                                        // CEO One-Tap Selection & Real SIM Carrier Lease
+                                        val fullFormattedNum = formatUsNumber(item.displayNumber.ifEmpty { item.raw_number })
+                                        coroutineScope.launch {
+                                            copyToClipboard("US Number", fullFormattedNum)
+                                            activeOrderNumber = fullFormattedNum
+                                            activeStateBadge = item.state
+                                            cancelLockoutSeconds = 120
+                                            poolNumbers = emptyList()
 
-                                            // Acquire live physical carrier lease from Edge Worker
                                             try {
                                                 val leaseResult = withContext(Dispatchers.IO) {
                                                     val conn = URL("$edgeBaseUrl/api/sms/lease").openConnection() as HttpURLConnection
@@ -393,29 +393,36 @@ fun UsaSmsHubScreen(
                                                     conn.connectTimeout = 15000
                                                     conn.readTimeout = 15000
                                                     val body = JSONObject().apply {
-                                                        put("service", selectedService?.id ?: "1012")
+                                                        put("service", selectedService?.id ?: "396")
                                                         put("areaCode", item.areaCode)
                                                     }
                                                     conn.outputStream.write(body.toString().toByteArray())
-                                                    val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                                                    val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
+                                                    val reader = BufferedReader(InputStreamReader(stream))
                                                     val json = JSONObject(reader.readText())
                                                     reader.close()
                                                     json
                                                 }
+
                                                 val realOid = leaseResult.optString("order_id", "")
-                                                val realNumber = leaseResult.optString("number", leaseResult.optString("displayNumber", ""))
+                                                val realNum = leaseResult.optString("number", leaseResult.optString("displayNumber", ""))
                                                 if (realOid.isNotEmpty()) {
                                                     activeOrderId = realOid
                                                 }
-                                                if (realNumber.isNotEmpty()) {
-                                                    activeOrderNumber = realNumber
-                                                    copyToClipboard("US Number", realNumber)
-                                                    Toast.makeText(context, "Live Number Allocated: " + realNumber, Toast.LENGTH_SHORT).show()
+                                                if (realNum.isNotEmpty()) {
+                                                    val finalFormatted = formatUsNumber(realNum)
+                                                    activeOrderNumber = finalFormatted
+                                                    copyToClipboard("US Number", finalFormatted)
+                                                    Toast.makeText(context, "Real SIM Line Ready: $finalFormatted", Toast.LENGTH_SHORT).show()
+                                                } else if (leaseResult.has("error")) {
+                                                    val err = leaseResult.optString("error", "Carrier purchase failed")
+                                                    Toast.makeText(context, "Carrier: $err", Toast.LENGTH_LONG).show()
                                                 }
                                             } catch (e: Exception) {
-                                                Toast.makeText(context, "Order active: listening for OTP", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, "Lease request error: ${e.message}", Toast.LENGTH_SHORT).show()
                                             }
-                                            }
+                                        }
+                                    }
                                         },
                                     color = SovereignCardBg,
                                     shape = RoundedCornerShape(10.dp),
@@ -567,28 +574,45 @@ fun UsaSmsHubScreen(
                         Button(
                             onClick = {
                                 if (otpDebounceSeconds == 0 && !isCheckingOtp) {
+                                    val currentOid = activeOrderId
+                                    if (currentOid.isNullOrEmpty()) {
+                                        Toast.makeText(context, "No active carrier order! Please select a line first.", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
                                     isCheckingOtp = true
                                     otpDebounceSeconds = 5
                                     coroutineScope.launch {
                                         try {
-                                            val code = withContext(Dispatchers.IO) {
-                                                val oid = activeOrderId ?: ""
-                                                val conn = URL("$edgeBaseUrl/api/sms/check?orderid=$oid").openConnection() as HttpURLConnection
+                                            val (code, status) = withContext(Dispatchers.IO) {
+                                                val conn = URL("$edgeBaseUrl/api/sms/check?orderid=$currentOid").openConnection() as HttpURLConnection
                                                 conn.requestMethod = "GET"
-                                                val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                                                conn.connectTimeout = 10000
+                                                conn.readTimeout = 10000
+                                                val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
+                                                val reader = BufferedReader(InputStreamReader(stream))
                                                 val json = JSONObject(reader.readText())
                                                 reader.close()
-                                                json.optString("code", null) ?: json.optString("sms", null)
+                                                val c = json.optString("code", null) ?: json.optString("sms", null)
+                                                val s = json.optInt("status", 1)
+                                                Pair(c, s)
                                             }
                                             if (!code.isNullOrEmpty() && code != "null") {
                                                 otpCode = code
                                                 copyToClipboard("OTP Code", code)
+                                                Toast.makeText(context, "OTP Code Received: $code", Toast.LENGTH_LONG).show()
+                                            } else if (status == 1) {
+                                                Toast.makeText(context, "Waiting for SMS... Try again in a few seconds.", Toast.LENGTH_SHORT).show()
                                             } else {
-                                                Toast.makeText(context, "OTP not arrived yet. Try again.", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, "SMS status: $status. No code received yet.", Toast.LENGTH_SHORT).show()
                                             }
                                         } catch (e: Exception) {
-                                            Toast.makeText(context, "Snapshot check failed", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Snapshot poll error: ${e.message}", Toast.LENGTH_SHORT).show()
                                         } finally {
+                                            isCheckingOtp = false
+                                        }
+                                    }
+                                }
+                            } finally {
                                             isCheckingOtp = false
                                         }
                                     }
