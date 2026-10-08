@@ -12,8 +12,8 @@ android {
         applicationId = "com.sovereign.commandcenter"
         minSdk = 26
         targetSdk = 34
-        versionCode = 10
-        versionName = "1.2.2-SMS-HUB"
+        versionCode = 11
+        versionName = "1.2.3-LIVE-OTP"
         buildConfigField("String", "API_BASE_URL", "\"https://sovereign-agent-production.updatedj25.workers.dev\"")
         ndk {
             abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
